@@ -512,6 +512,10 @@ const esbuildMediaScripts = [
 	'notebook-renderers/esbuild.js',
 	'ipynb/esbuild.js',
 	'simple-browser/esbuild-preview.js',
+	// --- Start Positron ---
+	'positron-ipywidgets/esbuild-preload.js',
+	'positron-ipywidgets/esbuild-renderer.js',
+	// --- End Positron ---
 ];
 
 export async function webpackExtensions(taskName: string, isWatch: boolean, webpackConfigLocations: { configPath: string; outputRoot?: string }[]) {

@@ -4,14 +4,18 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Disposable } from 'vs/base/common/lifecycle';
-import { ILanguageRuntimeMessageOutput, PositronOutputLocation, RuntimeOutputKind } from 'vs/workbench/services/languageRuntime/common/languageRuntimeService';
-import { ILanguageRuntimeSession, IRuntimeSessionService, RuntimeClientType } from 'vs/workbench/services/runtimeSession/common/runtimeSessionService';
+import { ILanguageRuntimeMessageOutput, LanguageRuntimeSessionMode, PositronOutputLocation, RuntimeOutputKind } from 'vs/workbench/services/languageRuntime/common/languageRuntimeService';
+import { ILanguageRuntimeSession, IRuntimeClientInstance, IRuntimeSessionService, RuntimeClientType } from 'vs/workbench/services/runtimeSession/common/runtimeSessionService';
 import { Emitter, Event } from 'vs/base/common/event';
 import { generateUuid } from 'vs/base/common/uuid';
 import { IPositronIPyWidgetsService, IPositronIPyWidgetMetadata, IPyWidgetHtmlData } from 'vs/workbench/services/positronIPyWidgets/common/positronIPyWidgetsService';
 import { IPyWidgetClientInstance, DisplayWidgetEvent } from 'vs/workbench/services/languageRuntime/common/languageRuntimeIPyWidgetClient';
 import { IPositronNotebookOutputWebviewService } from 'vs/workbench/contrib/positronOutputWebview/browser/notebookOutputWebviewService';
 import { WidgetPlotClient } from 'vs/workbench/contrib/positronPlots/browser/widgetPlotClient';
+import { INotebookEditorService } from 'vs/workbench/contrib/notebook/browser/services/notebookEditorService';
+import { INotebookEditor } from 'vs/workbench/contrib/notebook/browser/notebookBrowser';
+import { isEqual } from 'vs/base/common/resources';
+import { RuntimeClientState } from 'vs/workbench/services/languageRuntime/common/languageRuntimeClientInstance';
 
 export interface IPositronIPyWidgetCommOpenData {
 	state: {
@@ -41,7 +45,8 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 	/** Creates the Positron plots service instance */
 	constructor(
 		@IRuntimeSessionService private _runtimeSessionService: IRuntimeSessionService,
-		@IPositronNotebookOutputWebviewService private _notebookOutputWebviewService: IPositronNotebookOutputWebviewService
+		@IPositronNotebookOutputWebviewService private _notebookOutputWebviewService: IPositronNotebookOutputWebviewService,
+		@INotebookEditorService private _notebookEditorService: INotebookEditorService,
 	) {
 		super();
 
@@ -121,6 +126,143 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 				this.registerIPyWidgetClient(widgetClient, runtime);
 			}
 		}));
+
+		// TODO: This suggests we should put some of this logic in the widget client instance.
+		const clients = new Map<string, IRuntimeClientInstance<any, any>>();
+
+		// How do we attach the _notebook's_ session to its editor?
+
+		// TODO: Is this the right place? This can also be late since it only attaches after the
+		//       session has started, and the kernel preload may have already tried to send a message.
+		//       Maybe the preload/renderer needs to wait for some initialization message when the session
+		//       has started? How do we re-render an existing output then or is that already handled?
+		const attachNotebookEditor = (editor: INotebookEditor) => {
+			// If this notebook editor corresponds to the current session,
+			// const webview = editor.getInnerWebview();
+			// if (!webview) {
+			// 	// TODO: Error? Wait and try again? Resolve it first time somehow?
+			// 	return;
+			// }
+			// TODO: Should we have per session disposable stores?
+			this._register(editor.onDidChangeModel((e) => {
+				// Check if the new text model matches this session.
+				if (!(e && isEqual(e.uri, editor.textModel?.uri))) {
+					return;
+				}
+
+				this._register(editor.onDidReceiveMessage(async (event) => {
+					// TODO: Add types...
+					const message = event.message as any;
+					switch (message.type) {
+						case 'comm_info_request': {
+							console.log('SEND comm_info_request');
+							const allClients = await runtime.listClients(RuntimeClientType.IPyWidget);
+							const comms = allClients.map(client => ({ comm_id: client.getClientId() }));
+							console.log('RECV comm_info_reply');
+							editor.postMessage({ data: { type: 'comm_info_reply', comms } });
+							break;
+						}
+						case 'comm_open': {
+							const { comm_id, target_name, metadata } = message.content;
+							console.log('SEND comm_open', comm_id, target_name, metadata);
+							if (clients.has(comm_id)) {
+								break;
+							}
+							let client = runtime.clientInstances.find(
+								client => client.getClientType() === target_name && client.getClientId() === comm_id);
+							// TODO: Should we allow creating jupyter.widget comms?
+							if (!client) {
+								// TODO: Support creating a comm from the frontend
+								// TODO: Should we create the client elsewhere?
+								let runtimeClientType: RuntimeClientType;
+								switch (target_name as string) {
+									case 'jupyter.widget':
+										runtimeClientType = RuntimeClientType.IPyWidget;
+										break;
+									case 'jupyter.widget.control':
+										runtimeClientType = RuntimeClientType.IPyWidgetControl;
+										break;
+									default:
+										throw new Error(`Unknown target_name: ${target_name}`);
+								}
+								client = await runtime.createClient<any, any>(
+									runtimeClientType,
+									{},
+									metadata,
+								);
+							}
+
+							// TODO: Will we only add these once?
+							client.onDidReceiveData(data => {
+								// Handle an update from the runtime
+								console.log('RECV comm_msg:', data);
+								if (data?.method === 'update') {
+									editor.postMessage({ type: 'comm_msg', comm_id, content: { data } });
+								} else {
+									console.error(`Unhandled message for comm ${comm_id}: ${JSON.stringify(data)}`);
+								}
+							});
+
+							const stateChangeEvent = Event.fromObservable(client.clientState);
+							// TODO: Dispose!
+							stateChangeEvent(state => {
+								console.log('client.clientState changed:', state);
+								if (state === RuntimeClientState.Closed && clients.has(comm_id)) {
+									clients.delete(comm_id);
+									editor.postMessage({ type: 'comm_close', comm_id });
+								}
+							});
+							clients.set(comm_id, client);
+							break;
+						}
+						case 'comm_msg': {
+							const { comm_id, msg_id } = message;
+							const content = message.content;
+							console.log('SEND comm_msg:', content);
+							const client = clients.get(comm_id);
+							if (!client) {
+								throw new Error(`Client not found for comm_id: ${comm_id}`);
+							}
+							// TODO: List of RPC calls?
+							// if (message?.method === 'request_states') {
+							const output = await client.performRpc(content, 5000);
+							// TODO: Do we need the buffers attribute too (not buffer_paths)?
+							console.log('RECV comm_msg:', output);
+							editor.postMessage({
+								type: 'comm_msg',
+								comm_id: comm_id,
+								parent_header: { msg_id },
+								content: { data: output }
+							});
+							// TODO: Is this correct? Simulate a idle state here so ipywidgets knows that the RPC call is done
+							// webview.postMessage({ type: 'state', state: 'idle' });
+							// } else {
+							// 	// TODO: Why doesn't performRpc work for this?
+							// 	client.sendMessage(message);
+							// }
+							break;
+						}
+						default:
+							console.warn('Unhandled message:', message);
+							break;
+					}
+				}));
+			}));
+		};
+
+		// TODO: handle remove?
+		if (runtime.metadata.sessionMode === LanguageRuntimeSessionMode.Notebook) {
+			this._register(this._notebookEditorService.onDidAddNotebookEditor((editor) => {
+				// this._register(editor.onDidChangeActiveKernel((e) => {
+				// 	console.log('Active kernel changed:', e);
+				// }));
+				attachNotebookEditor(editor);
+			}));
+			for (const notebookEditor of this._notebookEditorService.listNotebookEditors()) {
+				attachNotebookEditor(notebookEditor);
+			}
+		}
+
 	}
 
 	private async handleDisplayEvent(event: DisplayWidgetEvent, runtime: ILanguageRuntimeSession) {

@@ -320,6 +320,8 @@ function handleRuntimeMessageOutput(
 		const data = message.data[mimeType];
 		if (mimeType === 'image/png' || mimeType === 'image/jpeg') {
 			cellOutputItems.push(new vscode.NotebookCellOutputItem(Buffer.from(data, 'base64'), mimeType));
+		} else if (mimeType === 'application/vnd.jupyter.widget-view+json') {
+			cellOutputItems.push(vscode.NotebookCellOutputItem.json(data, mimeType));
 		} else {
 			cellOutputItems.push(vscode.NotebookCellOutputItem.text(data, mimeType));
 		}
