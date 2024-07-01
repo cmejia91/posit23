@@ -17,6 +17,8 @@ import { INotebookEditorService } from 'vs/workbench/contrib/notebook/browser/se
 import { INotebookEditor } from 'vs/workbench/contrib/notebook/browser/notebookBrowser';
 import { isEqual } from 'vs/base/common/resources';
 import { RuntimeClientState } from 'vs/workbench/services/languageRuntime/common/languageRuntimeClientInstance';
+import { ILogService } from 'vs/platform/log/common/log';
+import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
 
 export interface IPositronIPyWidgetCommOpenData {
 	state: {
@@ -50,6 +52,7 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 		@IRuntimeSessionService private _runtimeSessionService: IRuntimeSessionService,
 		@IPositronNotebookOutputWebviewService private _notebookOutputWebviewService: IPositronNotebookOutputWebviewService,
 		@INotebookEditorService private _notebookEditorService: INotebookEditorService,
+		@IInstantiationService private readonly instantiationService: IInstantiationService,
 	) {
 		super();
 
@@ -148,7 +151,11 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 					return;
 				}
 
-				const positronIPyWidgetsInstance = new PositronIPyWidgetsInstance(runtime, editor);
+				const positronIPyWidgetsInstance = this.instantiationService.createInstance(
+					PositronIPyWidgetsInstance,
+					runtime,
+					editor
+				);
 				this._positronIPyWidgetsInstancesBySessionId.set(runtime.metadata.sessionId, positronIPyWidgetsInstance);
 			}));
 		};
@@ -249,6 +256,7 @@ class PositronIPyWidgetsInstance extends Disposable {
 	constructor(
 		private _session: ILanguageRuntimeSession,
 		private _editor: INotebookEditor,
+		@ILogService private readonly _logService: ILogService,
 	) {
 		// Call the base class's constructor.
 		super();
@@ -265,99 +273,118 @@ class PositronIPyWidgetsInstance extends Disposable {
 			// TODO: Add types...
 			const message = event.message as any;
 			switch (message.type) {
-				case 'comm_info_request': {
-					console.log('SEND comm_info_request');
-					const allClients = await this._session.listClients(RuntimeClientType.IPyWidget);
-					const comms = allClients.map(client => ({ comm_id: client.getClientId() }));
-					console.log('RECV comm_info_reply');
-					this._editor.postMessage({ data: { type: 'comm_info_reply', comms } });
+				case 'comm_info_request':
+					await this.handleCommInfoRequest();
 					break;
-				}
-				case 'comm_open': {
-					const { comm_id, target_name, metadata } = message.content;
-					console.log('SEND comm_open', comm_id, target_name, metadata);
-					if (this._clients.has(comm_id)) {
-						break;
-					}
-					let client = this._session.clientInstances.find(
-						client => client.getClientType() === target_name && client.getClientId() === comm_id);
-					// TODO: Should we allow creating jupyter.widget comms?
-					if (!client) {
-						// TODO: Support creating a comm from the frontend
-						// TODO: Should we create the client elsewhere?
-						let runtimeClientType: RuntimeClientType;
-						switch (target_name as string) {
-							case 'jupyter.widget':
-								runtimeClientType = RuntimeClientType.IPyWidget;
-								break;
-							case 'jupyter.widget.control':
-								runtimeClientType = RuntimeClientType.IPyWidgetControl;
-								break;
-							default:
-								throw new Error(`Unknown target_name: ${target_name}`);
-						}
-						client = await this._session.createClient<any, any>(
-							runtimeClientType,
-							{},
-							metadata,
-						);
-					}
-
-					// TODO: Will we only add these once?
-					client.onDidReceiveData(data => {
-						// Handle an update from the runtime
-						console.log('RECV comm_msg:', data);
-						if (data?.method === 'update') {
-							this._editor.postMessage({ type: 'comm_msg', comm_id, content: { data } });
-						} else {
-							console.error(`Unhandled message for comm ${comm_id}: ${JSON.stringify(data)}`);
-						}
-					});
-
-					const stateChangeEvent = Event.fromObservable(client.clientState);
-					// TODO: Dispose!
-					stateChangeEvent(state => {
-						console.log('client.clientState changed:', state);
-						if (state === RuntimeClientState.Closed && this._clients.has(comm_id)) {
-							this._clients.delete(comm_id);
-							this._editor.postMessage({ type: 'comm_close', comm_id });
-						}
-					});
-					this._clients.set(comm_id, client);
+				case 'comm_open':
+					this.handleCommOpen(message);
 					break;
-				}
 				case 'comm_msg': {
-					const { comm_id, msg_id } = message;
-					const content = message.content;
-					console.log('SEND comm_msg:', content);
-					const client = this._clients.get(comm_id);
-					if (!client) {
-						throw new Error(`Client not found for comm_id: ${comm_id}`);
-					}
-					// TODO: List of RPC calls?
-					// if (message?.method === 'request_states') {
-					const output = await client.performRpc(content, 5000);
-					// TODO: Do we need the buffers attribute too (not buffer_paths)?
-					console.log('RECV comm_msg:', output);
-					this._editor.postMessage({
-						type: 'comm_msg',
-						comm_id: comm_id,
-						parent_header: { msg_id },
-						content: { data: output }
-					});
-					// TODO: Is this correct? Simulate a idle state here so ipywidgets knows that the RPC call is done
-					// webview.postMessage({ type: 'state', state: 'idle' });
-					// } else {
-					// 	// TODO: Why doesn't performRpc work for this?
-					// 	client.sendMessage(message);
-					// }
+					this.handleCommMsg(message);
 					break;
 				}
 				default:
-					console.warn('Unhandled message:', message);
+					this._logService.warn('Unhandled message:', message);
 					break;
 			}
 		}));
+	}
+
+	private async handleCommInfoRequest() {
+		this._logService.debug('SEND comm_info_request');
+
+		const clients = await this._session.listClients(RuntimeClientType.IPyWidget);
+		const comms = clients.map(client => ({ comm_id: client.getClientId() }));
+
+		this._logService.debug('RECV comm_info_reply');
+		this._editor.postMessage({ data: { type: 'comm_info_reply', comms } });
+	}
+
+	// TODO: Types...
+	private async handleCommOpen(message: any) {
+		const { comm_id, target_name, metadata } = message.content;
+		this._logService.debug('SEND comm_open', comm_id, target_name, metadata);
+
+		if (this._clients.has(comm_id)) {
+			return;
+		}
+
+		let client = this._session.clientInstances.find(
+			client => client.getClientType() === target_name &&
+				client.getClientId() === comm_id);
+
+		// TODO: Should we allow creating jupyter.widget comms?
+		if (!client) {
+			// TODO: Support creating a comm from the frontend
+			// TODO: Should we create the client elsewhere?
+			let runtimeClientType: RuntimeClientType;
+			switch (target_name as string) {
+				case 'jupyter.widget':
+					runtimeClientType = RuntimeClientType.IPyWidget;
+					break;
+				case 'jupyter.widget.control':
+					runtimeClientType = RuntimeClientType.IPyWidgetControl;
+					break;
+				default:
+					throw new Error(`Unknown target_name: ${target_name}`);
+			}
+			client = await this._session.createClient<any, any>(
+				runtimeClientType,
+				{},
+				metadata,
+			);
+		}
+
+		// TODO: Will we only add these once?
+		client.onDidReceiveData(data => {
+			// Handle an update from the runtime
+			this._logService.debug('RECV comm_msg:', data);
+
+			if (data?.method === 'update') {
+				this._editor.postMessage({ type: 'comm_msg', comm_id, content: { data } });
+			} else {
+				console.error(`Unhandled message for comm ${comm_id}: ${JSON.stringify(data)}`);
+			}
+		});
+
+		const stateChangeEvent = Event.fromObservable(client.clientState);
+		// TODO: Dispose!
+		stateChangeEvent(state => {
+			this._logService.debug('client.clientState changed:', state);
+			if (state === RuntimeClientState.Closed && this._clients.has(comm_id)) {
+				this._clients.delete(comm_id);
+				this._editor.postMessage({ type: 'comm_close', comm_id });
+			}
+		});
+
+		this._clients.set(comm_id, client);
+	}
+
+	private async handleCommMsg(message: any) {
+		const { comm_id, msg_id } = message;
+		const content = message.content;
+		this._logService.debug('SEND comm_msg:', content);
+		const client = this._clients.get(comm_id);
+		if (!client) {
+			throw new Error(`Client not found for comm_id: ${comm_id}`);
+		}
+		// TODO: List of RPC calls?
+		// if (message?.method === 'request_states') {
+		const output = await client.performRpc(content, 5000);
+		// TODO: Do we need the buffers attribute too (not buffer_paths)?
+		this._logService.debug('RECV comm_msg:', output);
+		this._editor.postMessage({
+			type: 'comm_msg',
+			comm_id: comm_id,
+			parent_header: { msg_id },
+			content: { data: output }
+		});
+		// TODO: Is this correct? Simulate a idle state here so ipywidgets knows that the RPC call is done
+		// webview.postMessage({ type: 'state', state: 'idle' });
+		// } else {
+		// 	// TODO: Why doesn't performRpc work for this?
+		// 	client.sendMessage(message);
+		// }
 	}
 
 }
