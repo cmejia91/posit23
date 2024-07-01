@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 // TODO: Should we move this to workbench/services/positronIPyWidgets/browser/positronIPyWidgetsService.ts?
 
-import { Disposable } from 'vs/base/common/lifecycle';
+import { Disposable, DisposableStore } from 'vs/base/common/lifecycle';
 import { ILanguageRuntimeMessageOutput, LanguageRuntimeSessionMode, PositronOutputLocation, RuntimeOutputKind } from 'vs/workbench/services/languageRuntime/common/languageRuntimeService';
 import { ILanguageRuntimeSession, IRuntimeClientInstance, IRuntimeSessionService, RuntimeClientType } from 'vs/workbench/services/runtimeSession/common/runtimeSessionService';
 import { Emitter, Event } from 'vs/base/common/event';
@@ -17,6 +17,7 @@ import { INotebookEditorService } from 'vs/workbench/contrib/notebook/browser/se
 import { INotebookEditor } from 'vs/workbench/contrib/notebook/browser/notebookBrowser';
 import { isEqual } from 'vs/base/common/resources';
 import { RuntimeClientState } from 'vs/workbench/services/languageRuntime/common/languageRuntimeClientInstance';
+import { ILogService } from 'vs/platform/log/common/log';
 
 export interface IPositronIPyWidgetCommOpenData {
 	state: {
@@ -50,6 +51,7 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 		@IRuntimeSessionService private _runtimeSessionService: IRuntimeSessionService,
 		@IPositronNotebookOutputWebviewService private _notebookOutputWebviewService: IPositronNotebookOutputWebviewService,
 		@INotebookEditorService private _notebookEditorService: INotebookEditorService,
+		@ILogService private _logService: ILogService,
 	) {
 		super();
 
@@ -130,48 +132,48 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 			}
 		}));
 
-		// TODO: Is this the right place? This can also be late since it only attaches after the
-		//       session has started, and the kernel preload may have already tried to send a message.
-		//       Maybe the preload/renderer needs to wait for some initialization message when the session
-		//       has started? How do we re-render an existing output then or is that already handled?
-		const attachNotebookEditor = (editor: INotebookEditor) => {
-			// If this notebook editor corresponds to the current session,
-			// const webview = editor.getInnerWebview();
-			// if (!webview) {
-			// 	// TODO: Error? Wait and try again? Resolve it first time somehow?
-			// 	return;
-			// }
-			// TODO: Should we have per session disposable stores?
-			this._register(editor.onDidChangeModel((e) => {
-				// Check if the new text model matches this session.
-				if (!(e && isEqual(e.uri, editor.textModel?.uri))) {
-					return;
-				}
-
-				const positronIPyWidgetsInstance = new PositronIPyWidgetsInstance(
-					runtime,
-					editor,
-				);
-				this._positronIPyWidgetsInstancesBySessionId.set(runtime.metadata.sessionId, positronIPyWidgetsInstance);
-			}));
-		};
-
-		// When a notebook editor is added for this runtime, create a new widgets instance.
-		// The instance needs a notebook editor so that it can listen to and send messages
-		// to its notebook preload script.
-		// TODO: handle when a notebook editor is removed?
+		// If this is a notebook session, try to create a new PositronIPyWidgetsInstance.
 		if (runtime.metadata.sessionMode === LanguageRuntimeSessionMode.Notebook) {
-			this._register(this._notebookEditorService.onDidAddNotebookEditor((editor) => {
-				// this._register(editor.onDidChangeActiveKernel((e) => {
-				// 	console.log('Active kernel changed:', e);
-				// }));
-				attachNotebookEditor(editor);
-			}));
-			for (const notebookEditor of this._notebookEditorService.listNotebookEditors()) {
-				attachNotebookEditor(notebookEditor);
+			// Find the notebook editor for this session.
+			const notebookEditor = this._notebookEditorService.listNotebookEditors().find(
+				(editor) => isEqual(runtime.metadata.notebookUri, editor.textModel?.uri));
+
+			if (!notebookEditor) {
+				this._logService.error(`Could not find a notebook editor for session '${runtime.metadata.sessionId}'`);
+			} else {
+				// If we found a matching notebook editor, start a PositronIPyWidgetsInstance.
+				this._logService.debug(`Found an existing notebook editor for session '${runtime.metadata.sessionId}, starting ipywidgets instance`);
+				this.startPositronIPyWidgetsInstance(runtime, notebookEditor);
 			}
 		}
+	}
 
+	private startPositronIPyWidgetsInstance(session: ILanguageRuntimeSession, notebookEditor: INotebookEditor) {
+		const positronIPyWidgetsInstance = new PositronIPyWidgetsInstance(session, notebookEditor);
+		this._positronIPyWidgetsInstancesBySessionId.set(session.metadata.sessionId, positronIPyWidgetsInstance);
+
+		const disposableStore = new DisposableStore();
+
+		// TODO: Does this ever fire?
+		// Dispose the instance when the model changes.
+		disposableStore.add(notebookEditor.onDidChangeModel((e) => {
+			if (!isEqual(session.metadata.notebookUri, e?.uri)) {
+				this._logService.debug(`Editor model changed for session '${session.metadata.sessionId}, disposing ipywidgets instance`);
+				this._positronIPyWidgetsInstancesBySessionId.delete(session.metadata.sessionId);
+				positronIPyWidgetsInstance.dispose();
+				disposableStore.dispose();
+			}
+		}));
+
+		// Clean up when the notebook editor is removed.
+		disposableStore.add(this._notebookEditorService.onDidRemoveNotebookEditor((e) => {
+			if (e === notebookEditor) {
+				this._logService.debug(`Notebook editor removed for session '${session.metadata.sessionId}, disposing ipywidgets instance`);
+				this._positronIPyWidgetsInstancesBySessionId.delete(session.metadata.sessionId);
+				positronIPyWidgetsInstance.dispose();
+				disposableStore.dispose();
+			}
+		}));
 	}
 
 	private async handleDisplayEvent(event: DisplayWidgetEvent, runtime: ILanguageRuntimeSession) {
@@ -312,6 +314,8 @@ class PositronIPyWidgetsInstance extends Disposable {
 		if (!client) {
 			// TODO: Support creating a comm from the frontend
 			// TODO: Should we create the client elsewhere?
+
+			// TODO: This is actually not doing anything. We could just check if it's in a known list.
 			let runtimeClientType: RuntimeClientType;
 			switch (target_name as string) {
 				case 'jupyter.widget':
