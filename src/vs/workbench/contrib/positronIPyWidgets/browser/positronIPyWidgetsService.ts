@@ -17,8 +17,6 @@ import { INotebookEditorService } from 'vs/workbench/contrib/notebook/browser/se
 import { INotebookEditor } from 'vs/workbench/contrib/notebook/browser/notebookBrowser';
 import { isEqual } from 'vs/base/common/resources';
 import { RuntimeClientState } from 'vs/workbench/services/languageRuntime/common/languageRuntimeClientInstance';
-import { ILogService } from 'vs/platform/log/common/log';
-import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
 
 export interface IPositronIPyWidgetCommOpenData {
 	state: {
@@ -52,7 +50,6 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 		@IRuntimeSessionService private _runtimeSessionService: IRuntimeSessionService,
 		@IPositronNotebookOutputWebviewService private _notebookOutputWebviewService: IPositronNotebookOutputWebviewService,
 		@INotebookEditorService private _notebookEditorService: INotebookEditorService,
-		@IInstantiationService private readonly instantiationService: IInstantiationService,
 	) {
 		super();
 
@@ -151,10 +148,9 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 					return;
 				}
 
-				const positronIPyWidgetsInstance = this.instantiationService.createInstance(
-					PositronIPyWidgetsInstance,
+				const positronIPyWidgetsInstance = new PositronIPyWidgetsInstance(
 					runtime,
-					editor
+					editor,
 				);
 				this._positronIPyWidgetsInstancesBySessionId.set(runtime.metadata.sessionId, positronIPyWidgetsInstance);
 			}));
@@ -256,7 +252,6 @@ class PositronIPyWidgetsInstance extends Disposable {
 	constructor(
 		private _session: ILanguageRuntimeSession,
 		private _editor: INotebookEditor,
-		@ILogService private readonly _logService: ILogService,
 	) {
 		// Call the base class's constructor.
 		super();
@@ -284,26 +279,26 @@ class PositronIPyWidgetsInstance extends Disposable {
 					break;
 				}
 				default:
-					this._logService.warn('Unhandled message:', message);
+					console.warn('Unhandled message:', message);
 					break;
 			}
 		}));
 	}
 
 	private async handleCommInfoRequest() {
-		this._logService.debug('SEND comm_info_request');
+		console.debug('SEND comm_info_request');
 
 		const clients = await this._session.listClients(RuntimeClientType.IPyWidget);
 		const comms = clients.map(client => ({ comm_id: client.getClientId() }));
 
-		this._logService.debug('RECV comm_info_reply');
+		console.debug('RECV comm_info_reply');
 		this._editor.postMessage({ data: { type: 'comm_info_reply', comms } });
 	}
 
 	// TODO: Types...
 	private async handleCommOpen(message: any) {
 		const { comm_id, target_name, metadata } = message.content;
-		this._logService.debug('SEND comm_open', comm_id, target_name, metadata);
+		console.debug('SEND comm_open', comm_id, target_name, metadata);
 
 		if (this._clients.has(comm_id)) {
 			return;
@@ -338,7 +333,7 @@ class PositronIPyWidgetsInstance extends Disposable {
 		// TODO: Will we only add these once?
 		client.onDidReceiveData(data => {
 			// Handle an update from the runtime
-			this._logService.debug('RECV comm_msg:', data);
+			console.debug('RECV comm_msg:', data);
 
 			if (data?.method === 'update') {
 				this._editor.postMessage({ type: 'comm_msg', comm_id, content: { data } });
@@ -350,7 +345,7 @@ class PositronIPyWidgetsInstance extends Disposable {
 		const stateChangeEvent = Event.fromObservable(client.clientState);
 		// TODO: Dispose!
 		stateChangeEvent(state => {
-			this._logService.debug('client.clientState changed:', state);
+			console.debug('client.clientState changed:', state);
 			if (state === RuntimeClientState.Closed && this._clients.has(comm_id)) {
 				this._clients.delete(comm_id);
 				this._editor.postMessage({ type: 'comm_close', comm_id });
@@ -363,7 +358,7 @@ class PositronIPyWidgetsInstance extends Disposable {
 	private async handleCommMsg(message: any) {
 		const { comm_id, msg_id } = message;
 		const content = message.content;
-		this._logService.debug('SEND comm_msg:', content);
+		console.debug('SEND comm_msg:', content);
 		const client = this._clients.get(comm_id);
 		if (!client) {
 			throw new Error(`Client not found for comm_id: ${comm_id}`);
@@ -372,7 +367,7 @@ class PositronIPyWidgetsInstance extends Disposable {
 		// if (message?.method === 'request_states') {
 		const output = await client.performRpc(content, 5000);
 		// TODO: Do we need the buffers attribute too (not buffer_paths)?
-		this._logService.debug('RECV comm_msg:', output);
+		console.debug('RECV comm_msg:', output);
 		this._editor.postMessage({
 			type: 'comm_msg',
 			comm_id: comm_id,
