@@ -286,19 +286,19 @@ class PositronIPyWidgetsInstance extends Disposable {
 	}
 
 	private async handleCommInfoRequest() {
-		console.debug('SEND comm_info_request');
+		console.log('SEND comm_info_request');
 
 		const clients = await this._session.listClients(RuntimeClientType.IPyWidget);
 		const comms = clients.map(client => ({ comm_id: client.getClientId() }));
 
-		console.debug('RECV comm_info_reply');
+		console.log('RECV comm_info_reply');
 		this._editor.postMessage({ data: { type: 'comm_info_reply', comms } });
 	}
 
 	// TODO: Types...
 	private async handleCommOpen(message: any) {
 		const { comm_id, target_name, metadata } = message.content;
-		console.debug('SEND comm_open', comm_id, target_name, metadata);
+		console.log('SEND comm_open', comm_id, target_name, metadata);
 
 		if (this._clients.has(comm_id)) {
 			return;
@@ -333,7 +333,7 @@ class PositronIPyWidgetsInstance extends Disposable {
 		// TODO: Will we only add these once?
 		client.onDidReceiveData(data => {
 			// Handle an update from the runtime
-			console.debug('RECV comm_msg:', data);
+			console.log('RECV comm_msg:', data);
 
 			if (data?.method === 'update') {
 				this._editor.postMessage({ type: 'comm_msg', comm_id, content: { data } });
@@ -345,7 +345,7 @@ class PositronIPyWidgetsInstance extends Disposable {
 		const stateChangeEvent = Event.fromObservable(client.clientState);
 		// TODO: Dispose!
 		stateChangeEvent(state => {
-			console.debug('client.clientState changed:', state);
+			console.log('client.clientState changed:', state);
 			if (state === RuntimeClientState.Closed && this._clients.has(comm_id)) {
 				this._clients.delete(comm_id);
 				this._editor.postMessage({ type: 'comm_close', comm_id });
@@ -358,7 +358,7 @@ class PositronIPyWidgetsInstance extends Disposable {
 	private async handleCommMsg(message: any) {
 		const { comm_id, msg_id } = message;
 		const content = message.content;
-		console.debug('SEND comm_msg:', content);
+		console.log('SEND comm_msg:', content);
 		const client = this._clients.get(comm_id);
 		if (!client) {
 			throw new Error(`Client not found for comm_id: ${comm_id}`);
@@ -367,7 +367,7 @@ class PositronIPyWidgetsInstance extends Disposable {
 		// if (message?.method === 'request_states') {
 		const output = await client.performRpc(content, 5000);
 		// TODO: Do we need the buffers attribute too (not buffer_paths)?
-		console.debug('RECV comm_msg:', output);
+		console.log('RECV comm_msg:', output);
 		this._editor.postMessage({
 			type: 'comm_msg',
 			comm_id: comm_id,
