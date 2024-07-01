@@ -11,11 +11,11 @@ import * as output from '@jupyter-widgets/output';
 import { ManagerBase } from '@jupyter-widgets/base-manager';
 // TODO: Do we really need to depend on this?
 import { JSONObject, JSONValue, UUID } from '@lumino/coreutils';
+import { VSCodeEvent } from 'vscode-notebook-renderer/events';
 // import { Event } from 'vscode';
 
 interface KernelPreloadContext {
-	// readonly onDidReceiveKernelMessage: Event<unknown>;
-	readonly onDidReceiveKernelMessage: any;
+	readonly onDidReceiveKernelMessage: VSCodeEvent<unknown>;
 	postKernelMessage(data: unknown): void;
 }
 
@@ -28,8 +28,6 @@ interface ICommInfoReply {
 	comms: { comm_id: string }[];
 }
 
-const comms = new Map<string, Comm>();
-
 // TODO: implement Kernel.IComm instead, and use the shim to convert to IClassicComm. Then we don't have to implement callbacks, I think?
 class Comm implements base.IClassicComm {
 	private _on_msg: ((x: any) => void) | undefined;
@@ -40,7 +38,19 @@ class Comm implements base.IClassicComm {
 		readonly comm_id: string,
 		readonly target_name: string,
 		private readonly context: KernelPreloadContext,
-	) { }
+	) {
+		context.onDidReceiveKernelMessage((message: any) => {
+			switch (message.type) {
+				case 'comm_msg':
+					this.handle_msg(message);
+					break;
+				case 'comm_close':
+					this.handle_close(message);
+					break;
+			}
+		});
+
+	}
 
 	open(data: JSONValue, callbacks?: base.ICallbacks | undefined, metadata?: JSONObject | undefined, buffers?: ArrayBuffer[] | ArrayBufferView[] | undefined): string {
 		console.log('Comm.open', data, callbacks, metadata, buffers);
@@ -171,6 +181,24 @@ class HTMLManager extends ManagerBase {
 
 	constructor(private readonly context: KernelPreloadContext) {
 		super();
+
+		// TODO: Validate the message?
+		context.onDidReceiveKernelMessage((message: any) => {
+			// if (
+			// 	typeof event === 'object' &&
+			// 	event &&
+			// 	'type' in event &&
+			// 	event.type === IPyWidgetMessages.IPyWidgets_Reply_Widget_Version &&
+			// 	'payload' in event &&
+			// 	typeof event.payload === 'number'
+			// ) {
+			// }
+			switch (message.type) {
+				case 'comm_info_reply':
+					this.onCommInfoReply(message);
+					break;
+			}
+		});
 	}
 
 	// IWidgetManager interface
@@ -209,7 +237,6 @@ class HTMLManager extends ManagerBase {
 			}
 		);
 		const comm = new Comm(model_id, comm_target_name, this.context);
-		comms.set(model_id, comm);
 		return comm;
 	}
 

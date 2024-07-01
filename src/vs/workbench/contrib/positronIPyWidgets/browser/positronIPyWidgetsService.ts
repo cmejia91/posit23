@@ -314,8 +314,6 @@ class PositronIPyWidgetsInstance extends Disposable {
 		if (!client) {
 			// TODO: Support creating a comm from the frontend
 			// TODO: Should we create the client elsewhere?
-
-			// TODO: This is actually not doing anything. We could just check if it's in a known list.
 			let runtimeClientType: RuntimeClientType;
 			switch (target_name as string) {
 				case 'jupyter.widget':
@@ -355,6 +353,9 @@ class PositronIPyWidgetsInstance extends Disposable {
 				this._editor.postMessage({ type: 'comm_close', comm_id });
 			}
 		});
+
+		// TODO: This is writing the comm_id passed from the preload script, not the actual comm_id
+		//       that the session knows about...
 
 		this._clients.set(comm_id, client);
 	}
