@@ -368,23 +368,26 @@ class PositronIPyWidgetsInstance extends Disposable {
 		if (!client) {
 			throw new Error(`Client not found for comm_id: ${comm_id}`);
 		}
-		// TODO: List of RPC calls?
-		// if (message?.method === 'request_states') {
-		const output = await client.performRpc(content, 5000);
-		// TODO: Do we need the buffers attribute too (not buffer_paths)?
-		console.log('RECV comm_msg:', output);
-		this._editor.postMessage({
-			type: 'comm_msg',
-			comm_id: comm_id,
-			parent_header: { msg_id },
-			content: { data: output }
-		});
-		// TODO: Is this correct? Simulate a idle state here so ipywidgets knows that the RPC call is done
-		// webview.postMessage({ type: 'state', state: 'idle' });
-		// } else {
-		// 	// TODO: Why doesn't performRpc work for this?
-		// 	client.sendMessage(message);
-		// }
+		// TODO: Maybe it's better to separate these in the preload? Is that possible?
+		if (['request_states', 'update'].includes(content?.method)) {
+			const output = await client.performRpc(content, 5000);
+			// TODO: Do we need the buffers attribute too (not buffer_paths)?
+			console.log('RECV comm_msg:', output);
+			this._editor.postMessage({
+				type: 'comm_msg',
+				comm_id: comm_id,
+				parent_header: { msg_id },
+				content: { data: output }
+			});
+			// TODO: Is this correct? Simulate a idle state here so ipywidgets knows that the RPC call is done
+			// webview.postMessage({ type: 'state', state: 'idle' });
+			// } else {
+			// 	// TODO: Why doesn't performRpc work for this?
+			// 	client.sendMessage(message);
+			// }
+		} else {
+			client.sendMessage(content);
+		}
 	}
 
 }
