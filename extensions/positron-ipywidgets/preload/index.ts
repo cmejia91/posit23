@@ -202,14 +202,17 @@ class HTMLManager extends ManagerBase {
 
 	protected override loadClass(className: string, moduleName: string, moduleVersion: string): Promise<typeof base.WidgetModel | typeof base.WidgetView> {
 		console.log('loadClass', className, moduleName, moduleVersion);
+		if (moduleName === '@jupyter-widgets/base') {
+			return Promise.resolve(require('@jupyter-widgets/base')[className]);
+		}
+		if (moduleName === '@jupyter-widgets/controls') {
+			return Promise.resolve(require('@jupyter-widgets/controls')[className]);
+		}
+		if (moduleName === '@jupyter-widgets/output') {
+			return Promise.resolve(require('@jupyter-widgets/output')[className]);
+		}
 		// TODO: We don't actually "register" anything... How does Jupyter Lab do this?
-		// We have to use the callback form of require in case the module is not yet loaded.
-		// TODO: Should we timeout?
-		return new Promise((resolve) => {
-			(require as any)([moduleName], (module: any) => {
-				resolve(module[className]);
-			});
-		});
+		throw new Error(`No version of module ${moduleName} is registered`);
 	}
 
 	protected override async _create_comm(comm_target_name: string, model_id?: string | undefined, data?: JSONObject | undefined, metadata?: JSONObject | undefined, buffers?: ArrayBuffer[] | ArrayBufferView[] | undefined): Promise<base.IClassicComm> {
