@@ -4,12 +4,15 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as base from '@jupyter-widgets/base';
-import { ManagerBase } from '@jupyter-widgets/base-manager';
+import * as controls from '@jupyter-widgets/controls';
 import { IIOPubMessage, IOPubMessageType } from '@jupyterlab/services/lib/kernel/messages';
 import * as LuminoWidget from '@lumino/widgets';
+import * as output from '@jupyter-widgets/output';
+import { ManagerBase } from '@jupyter-widgets/base-manager';
 // TODO: Do we really need to depend on this?
 import { JSONObject, JSONValue, UUID } from '@lumino/coreutils';
 import { VSCodeEvent } from 'vscode-notebook-renderer/events';
+// import { Event } from 'vscode';
 
 interface KernelPreloadContext {
 	readonly onDidReceiveKernelMessage: VSCodeEvent<unknown>;
@@ -203,13 +206,13 @@ class HTMLManager extends ManagerBase {
 	protected override loadClass(className: string, moduleName: string, moduleVersion: string): Promise<typeof base.WidgetModel | typeof base.WidgetView> {
 		console.log('loadClass', className, moduleName, moduleVersion);
 		if (moduleName === '@jupyter-widgets/base') {
-			return Promise.resolve(require('@jupyter-widgets/base')[className]);
+			return Promise.resolve((base as any)[className]);
 		}
 		if (moduleName === '@jupyter-widgets/controls') {
-			return Promise.resolve(require('@jupyter-widgets/controls')[className]);
+			return Promise.resolve((controls as any)[className]);
 		}
 		if (moduleName === '@jupyter-widgets/output') {
-			return Promise.resolve(require('@jupyter-widgets/output')[className]);
+			return Promise.resolve((output as any)[className]);
 		}
 		// TODO: We don't actually "register" anything... How does Jupyter Lab do this?
 		throw new Error(`No version of module ${moduleName} is registered`);
