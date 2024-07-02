@@ -29,11 +29,6 @@ interface KernelPreloadContext {
 	postKernelMessage(data: unknown): void;
 }
 
-interface VSCodeIPyWidgetsLoader {
-	load(): () => void;
-	unload(): () => void;
-}
-
 interface ICommInfoReply {
 	comms: { comm_id: string }[];
 }
@@ -236,22 +231,15 @@ class HTMLManager extends ManagerBase {
 	private async loadModule(moduleName: string, moduleVersion: string): Promise<any> {
 		// Adapted from @jupyter-widgets/html-manager.
 
-		// First check if it's a module that we bundle directly.
-		if (moduleName === '@jupyter-widgets/base') {
-			return base;
-		} else if (moduleName === '@jupyter-widgets/controls') {
-			return controls;
-		} else if (moduleName === '@jupyter-widgets/output') {
-			return output;
-		}
-
-		// It's not a bundled module, try to load it with requirejs.
+		// Get requirejs from the window object.
+		// TODO: Who loads it first?
 		const require = (window as any).requirejs;
 		if (require === undefined) {
 			throw new Error('Requirejs is needed, please ensure it is loaded on the page.');
 		}
 
 		try {
+			// Try to load the module with requirejs.
 			return await new Promise((resolve, reject) => require([moduleName], resolve, reject));
 		} catch (err) {
 			// We failed to load the module with requirejs, fall back to a CDN.
@@ -363,30 +351,27 @@ class HTMLManager extends ManagerBase {
 export async function activate(context: KernelPreloadContext): Promise<void> {
 	console.log('Activated positron-ipywidgets preload! context:', context);
 
-	// Poll until vscIPyWidgets8 is available.
-	//
-	// vscIPyWidgets7 and vscIPyWidgets8 are attached to the window in the preload script defined
-	// in the vscode-jupyter-ipywidgets repo, and contributed via the vscode-notebook-renderers
-	// extension.
-	const vscIPyWidgets8 = await new Promise<VSCodeIPyWidgetsLoader>((resolve) => {
-		const interval = setInterval(() => {
-			const vscIPyWidgets8 = (window as any).vscIPyWidgets8;
-			if (vscIPyWidgets8) {
-				clearInterval(interval);
-				resolve(vscIPyWidgets8);
-			}
-		}, 100);
+	// We bundle the main widgets packages with the preload script.
+	// However, we still need to define them as AMD modules since if a third party module
+	// depends on them it will try to load them with requirejs.
+	const define = (window as any).define;
+	if (define === undefined) {
+		throw new Error('Requirejs is needed, please ensure it is loaded on the page.');
+	}
+	define('@jupyter-widgets/base', () => base);
+	define('@jupyter-widgets/controls', () => controls);
+	define('@jupyter-widgets/output', () => output);
+
+	// TODO: Should we await this and timeout?
+	context.onDidReceiveKernelMessage((message: any) => {
+		console.log('Kernel received message:', message);
+		if (message.type === 'append_stylesheet') {
+			const link = document.createElement('link');
+			link.rel = 'stylesheet';
+			link.href = message.href;
+			document.head.appendChild(link);
+		}
 	});
-
-	// TODO: Explain
-	vscIPyWidgets8.load();
-
-	// const WidgetManager = (window as any).vscIPyWidgets.WidgetManager;
-
-	// console.log('WidgetManager:', WidgetManager);
-
-	// const manager = new WidgetManager();
-	// console.log('manager:', manager);
 
 	const manager = new HTMLManager(context);
 	(window as any).positronIPyWidgetManager = manager;

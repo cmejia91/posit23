@@ -18,6 +18,9 @@ import { INotebookEditor } from 'vs/workbench/contrib/notebook/browser/notebookB
 import { isEqual } from 'vs/base/common/resources';
 import { RuntimeClientState } from 'vs/workbench/services/languageRuntime/common/languageRuntimeClientInstance';
 import { ILogService } from 'vs/platform/log/common/log';
+import { asWebviewUri } from 'vs/workbench/contrib/webview/common/webview';
+import { IExtensionService } from 'vs/workbench/services/extensions/common/extensions';
+import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
 
 export interface IPositronIPyWidgetCommOpenData {
 	state: {
@@ -52,6 +55,7 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 		@IPositronNotebookOutputWebviewService private _notebookOutputWebviewService: IPositronNotebookOutputWebviewService,
 		@INotebookEditorService private _notebookEditorService: INotebookEditorService,
 		@ILogService private _logService: ILogService,
+		@IInstantiationService private _instantiationService: IInstantiationService,
 	) {
 		super();
 
@@ -149,7 +153,10 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 	}
 
 	private startPositronIPyWidgetsInstance(session: ILanguageRuntimeSession, notebookEditor: INotebookEditor) {
-		const positronIPyWidgetsInstance = new PositronIPyWidgetsInstance(session, notebookEditor);
+		const positronIPyWidgetsInstance = this._instantiationService.createInstance(
+			PositronIPyWidgetsInstance,
+			session,
+			notebookEditor);
 		this._positronIPyWidgetsInstancesBySessionId.set(session.metadata.sessionId, positronIPyWidgetsInstance);
 
 		const disposableStore = new DisposableStore();
@@ -254,6 +261,7 @@ class PositronIPyWidgetsInstance extends Disposable {
 	constructor(
 		private _session: ILanguageRuntimeSession,
 		private _editor: INotebookEditor,
+		@IExtensionService private _extensionService: IExtensionService,
 	) {
 		// Call the base class's constructor.
 		super();
@@ -285,6 +293,17 @@ class PositronIPyWidgetsInstance extends Disposable {
 					break;
 			}
 		}));
+
+		this._extensionService.getExtension('vscode.positron-ipywidgets').then((extension) => {
+			if (!extension) {
+				throw new Error('positron-ipywidgets extension not found');
+			}
+			const styleUri = asWebviewUri(
+				extension.extensionLocation.with({
+					path: extension.extensionLocation.path + '/preload-out/index.css'
+				}));
+			this._editor.postMessage({ type: 'append_stylesheet', href: styleUri.toString() });
+		});
 	}
 
 	private async handleCommInfoRequest() {
