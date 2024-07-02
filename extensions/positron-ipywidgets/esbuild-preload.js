@@ -16,6 +16,14 @@ require('../esbuild-webview-common').run({
 	srcDir,
 	outdir: outDir,
 	additionalOptions: {
+		// Required to bundle Jupyter CSS and fonts.
+		loader: {
+			'.svg': 'dataurl',
+			'.ttf': 'dataurl',
+			'.woff': 'dataurl',
+			'.woff2': 'dataurl',
+			'.eot': 'dataurl',
+		},
 		define: {
 			// RequireJS is included by a previous notebook preload script. Some of our dependencies
 			// (e.g. backbone) try to use RequireJS's `define` if it's present, but esbuild expects

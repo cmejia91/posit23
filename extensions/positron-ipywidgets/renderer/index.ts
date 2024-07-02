@@ -5,14 +5,6 @@
 
 import { ActivationFunction } from 'vscode-notebook-renderer';
 
-// TODO: Need these?
-import '@fortawesome/fontawesome-free/css/all.min.css';
-import '@fortawesome/fontawesome-free/css/v4-shims.min.css';
-
-import '@lumino/widgets/style/index.css';
-import '@jupyter-widgets/base/css/index.css';
-import '@jupyter-widgets/controls/css/widgets.css'; // This imports labvariables and widgets-base
-
 // window.addEventListener('load', () => {
 // 	// TODO: Is there a better way for us to control what gets rendered than passing via HTML?
 // 	//  Can we directly use the data from the display message?

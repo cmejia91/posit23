@@ -15,15 +15,4 @@ require('../esbuild-webview-common').run({
 	],
 	srcDir,
 	outdir: outDir,
-	additionalOptions: {
-		// TODO: Do we still need this if we can use vscode-jupyter-ipywidgets?
-		//       It ends up being a 5.1 MB file so ideally we can avoid it.
-		loader: {
-			'.svg': 'dataurl',
-			'.ttf': 'dataurl',
-			'.woff': 'dataurl',
-			'.woff2': 'dataurl',
-			'.eot': 'dataurl',
-		},
-	}
 }, process.argv);

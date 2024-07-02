@@ -14,6 +14,14 @@ import { JSONObject, JSONValue, UUID } from '@lumino/coreutils';
 import { VSCodeEvent } from 'vscode-notebook-renderer/events';
 // import { Event } from 'vscode';
 
+// TODO: Need these?
+import '@fortawesome/fontawesome-free/css/all.min.css';
+import '@fortawesome/fontawesome-free/css/v4-shims.min.css';
+
+import '@lumino/widgets/style/index.css';
+import '@jupyter-widgets/base/css/index.css';
+import '@jupyter-widgets/controls/css/widgets.css'; // This imports labvariables and widgets-base
+
 interface KernelPreloadContext {
 	readonly onDidReceiveKernelMessage: VSCodeEvent<unknown>;
 	postKernelMessage(data: unknown): void;
