@@ -22,6 +22,8 @@ import '@lumino/widgets/style/index.css';
 import '@jupyter-widgets/base/css/index.css';
 import '@jupyter-widgets/controls/css/widgets.css'; // This imports labvariables and widgets-base
 
+const CDN = 'https://cdn.jsdelivr.net/npm/';
+
 interface KernelPreloadContext {
 	readonly onDidReceiveKernelMessage: VSCodeEvent<unknown>;
 	postKernelMessage(data: unknown): void;
@@ -181,6 +183,26 @@ class Comm implements base.IClassicComm {
 	}
 }
 
+// Adapted from @jupyter-widgets/html-manager
+function moduleNameToCDNUrl(moduleName: string, moduleVersion: string): string {
+	let packageName = moduleName;
+	let fileName = 'index'; // default filename
+	// if a '/' is present, like 'foo/bar', packageName is changed to 'foo', and path to 'bar'
+	// We first find the first '/'
+	let index = moduleName.indexOf('/');
+	if (index !== -1 && moduleName[0] === '@') {
+		// if we have a namespace, it's a different story
+		// @foo/bar/baz should translate to @foo/bar and baz
+		// so we find the 2nd '/'
+		index = moduleName.indexOf('/', index + 1);
+	}
+	if (index !== -1) {
+		fileName = moduleName.substr(index + 1);
+		packageName = moduleName.substr(0, index);
+	}
+	return `${CDN}${packageName}@${moduleVersion}/dist/${fileName}`;
+}
+
 // TODO: Does everything need to be protected?
 class HTMLManager extends ManagerBase {
 	// TODO: Can we make a very simple RPC mechanism?
@@ -211,19 +233,51 @@ class HTMLManager extends ManagerBase {
 
 	// IWidgetManager interface
 
-	protected override loadClass(className: string, moduleName: string, moduleVersion: string): Promise<typeof base.WidgetModel | typeof base.WidgetView> {
-		console.log('loadClass', className, moduleName, moduleVersion);
+	private async loadModule(moduleName: string, moduleVersion: string): Promise<any> {
+		// Adapted from @jupyter-widgets/html-manager.
+
+		// First check if it's a module that we bundle directly.
 		if (moduleName === '@jupyter-widgets/base') {
-			return Promise.resolve((base as any)[className]);
+			return base;
+		} else if (moduleName === '@jupyter-widgets/controls') {
+			return controls;
+		} else if (moduleName === '@jupyter-widgets/output') {
+			return output;
 		}
-		if (moduleName === '@jupyter-widgets/controls') {
-			return Promise.resolve((controls as any)[className]);
+
+		// It's not a bundled module, try to load it with requirejs.
+		const require = (window as any).requirejs;
+		if (require === undefined) {
+			throw new Error('Requirejs is needed, please ensure it is loaded on the page.');
 		}
-		if (moduleName === '@jupyter-widgets/output') {
-			return Promise.resolve((output as any)[className]);
+
+		try {
+			return await new Promise((resolve, reject) => require([moduleName], resolve, reject));
+		} catch (err) {
+			// We failed to load the module with requirejs, fall back to a CDN.
+			// TODO: Do we need this check? Do we need to undef?
+			const failedId = err.requireModules && err.requireModules[0];
+			if (failedId) {
+				require.undef(failedId);
+				console.log(`Falling back to ${CDN} for ${moduleName}@${moduleVersion}`);
+				const conf: { paths: { [key: string]: string } } = { paths: {} };
+				conf.paths[moduleName] = moduleNameToCDNUrl(moduleName, moduleVersion);
+				require.config(conf);
+				return await new Promise((resolve, reject) => require([moduleName], resolve, reject));
+			}
 		}
-		// TODO: We don't actually "register" anything... How does Jupyter Lab do this?
-		throw new Error(`No version of module ${moduleName} is registered`);
+
+		throw new Error(`Error loading module ${moduleName}@${moduleVersion}`);
+	}
+
+	protected override async loadClass(className: string, moduleName: string, moduleVersion: string): Promise<typeof base.WidgetModel | typeof base.WidgetView> {
+		// Adapted from @jupyter-widgets/html-manager.
+		console.log('loadClass', className, moduleName, moduleVersion);
+		const module = await this.loadModule(moduleName, moduleVersion);
+		if (!module[className]) {
+			throw new Error(`Class ${className} not found in module ${moduleName}@${moduleVersion}`);
+		}
+		return module[className];
 	}
 
 	protected override async _create_comm(comm_target_name: string, model_id?: string | undefined, data?: JSONObject | undefined, metadata?: JSONObject | undefined, buffers?: ArrayBuffer[] | ArrayBufferView[] | undefined): Promise<base.IClassicComm> {
