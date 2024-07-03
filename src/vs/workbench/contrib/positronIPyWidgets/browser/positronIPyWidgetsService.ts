@@ -280,9 +280,6 @@ class PositronIPyWidgetsInstance extends Disposable {
 			// TODO: Add types...
 			const message = event.message as any;
 			switch (message.type) {
-				case 'comm_info_request':
-					await this.handleCommInfoRequest();
-					break;
 				case 'comm_msg':
 					this.handleCommMsg(message);
 					break;
@@ -348,16 +345,6 @@ class PositronIPyWidgetsInstance extends Disposable {
 		//       that the session knows about...
 
 		this._clients.set(comm_id, client);
-	}
-
-	private async handleCommInfoRequest() {
-		console.log('SEND comm_info_request');
-
-		const clients = await this._session.listClients(RuntimeClientType.IPyWidget);
-		const comms = clients.map(client => ({ comm_id: client.getClientId() }));
-
-		console.log('RECV comm_info_reply');
-		this._editor.postMessage({ data: { type: 'comm_info_reply', comms } });
 	}
 
 	private async handleCommMsg(message: IWidgetCommMessage) {

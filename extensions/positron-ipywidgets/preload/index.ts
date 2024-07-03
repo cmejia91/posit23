@@ -26,10 +26,6 @@ export interface KernelPreloadContext {
 	postKernelMessage(data: unknown): void;
 }
 
-interface ICommInfoReply {
-	comms: { comm_id: string }[];
-}
-
 // TODO: Look into services.KernelMessage.ICommOpenMsg
 interface ICommOpen {
 	comm_id: string;
@@ -60,10 +56,6 @@ function moduleNameToCDNUrl(moduleName: string, moduleVersion: string): string {
 
 // TODO: Does everything need to be protected?
 class HTMLManager extends ManagerBase {
-	// TODO: Can we make a very simple RPC mechanism?
-	private commInfoPromise: Promise<string[]> | undefined;
-	private resolveCommInfoPromise: ((value: string[] | PromiseLike<string[]>) => void) | undefined;
-
 	constructor(private readonly context: KernelPreloadContext) {
 		super();
 
@@ -79,9 +71,6 @@ class HTMLManager extends ManagerBase {
 			// ) {
 			// }
 			switch (message.type) {
-				case 'comm_info_reply':
-					this.onCommInfoReply(message);
-					break;
 				case 'comm_open':
 					this.onCommOpen(message);
 					break;
@@ -136,19 +125,7 @@ class HTMLManager extends ManagerBase {
 	}
 
 	protected override _get_comm_info(): Promise<{}> {
-		console.log('_get_comm_info');
-		if (this.commInfoPromise) {
-			return this.commInfoPromise;
-		}
-
-		this.commInfoPromise = new Promise<string[]>((resolve, reject) => {
-			this.resolveCommInfoPromise = resolve;
-			setTimeout(() => reject(new Error('Timeout waiting for comm_info_reply')), 5000);
-		});
-
-		this.context.postKernelMessage({ type: 'comm_info_request' });
-
-		return this.commInfoPromise;
+		throw new Error('Method not implemented.');
 	}
 
 	// New methods
@@ -177,15 +154,6 @@ class HTMLManager extends ManagerBase {
 		// v.once('remove', () => {
 		// 	this._viewList.delete(v);
 		// });
-	}
-
-	onCommInfoReply(message: ICommInfoReply) {
-		if (!this.commInfoPromise) {
-			throw new Error('Unexpected comm_info_reply');
-		}
-		// TODO: Should we make the webview container send exactly what's needed for get_comm_info (comm_ids)?
-		// TODO: Should we implement a "kernel", or is that too much overhead?
-		this.resolveCommInfoPromise!(message.comms.map((comm) => comm.comm_id));
 	}
 
 	async onCommOpen(message: ICommOpen) {
