@@ -33,6 +33,14 @@ interface ICommInfoReply {
 	comms: { comm_id: string }[];
 }
 
+// TODO: Look into services.KernelMessage.ICommOpenMsg
+interface ICommOpen {
+	comm_id: string;
+	target_name: string;
+	content: { data: JSONObject };
+	metadata: JSONObject;
+}
+
 // TODO: implement Kernel.IComm instead, and use the shim to convert to IClassicComm. Then we don't have to implement callbacks, I think?
 class Comm implements base.IClassicComm {
 	private _on_msg: ((x: any) => void) | undefined;
@@ -222,6 +230,9 @@ class HTMLManager extends ManagerBase {
 				case 'comm_info_reply':
 					this.onCommInfoReply(message);
 					break;
+				case 'comm_open':
+					this.onCommOpen(message);
+					break;
 			}
 		});
 	}
@@ -341,6 +352,13 @@ class HTMLManager extends ManagerBase {
 		// TODO: Should we make the webview container send exactly what's needed for get_comm_info (comm_ids)?
 		// TODO: Should we implement a "kernel", or is that too much overhead?
 		this.resolveCommInfoPromise!(message.comms.map((comm) => comm.comm_id));
+	}
+
+	async onCommOpen(message: ICommOpen) {
+		const comm = new Comm(message.comm_id, message.target_name, this.context);
+		// TODO: Fix type...
+		await this.handle_comm_open(comm, message as any);
+		console.log('Opened comm:', comm);
 	}
 
 	async loadFromKernel(): Promise<void> {

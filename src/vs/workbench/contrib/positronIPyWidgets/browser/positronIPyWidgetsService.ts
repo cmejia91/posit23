@@ -295,6 +295,48 @@ class PositronIPyWidgetsInstance extends Disposable {
 			}
 		}));
 
+		this._register(this._session.onDidCreateClientInstance((event) => {
+			if (event.client.getClientType() === RuntimeClientType.IPyWidget) {
+				this._editor.postMessage({
+					type: 'comm_open',
+					comm_id: event.message.comm_id,
+					target_name: event.message.target_name,
+					content: { data: event.message.data },
+					metadata: event.message.metadata,
+				});
+
+				// TODO: Can there be a race condition here somehow?
+				this.attachClient(event.client);
+
+				// const clientId = event.client.getClientId();
+				// 		// Check to see if we we already have a widget client for this
+				// 		// client ID. If so, we don't need to do anything.
+				// 		if (this.hasWidget(runtime.runtimeMetadata.runtimeId, clientId)) {
+				// 			return;
+				// 		}
+
+				// 		const data = event.message.data as IPositronIPyWidgetCommOpenData;
+
+				// 		// Create the metadata object
+				// 		const metadata: IPositronIPyWidgetMetadata = {
+				// 			id: clientId,
+				// 			runtime_id: runtime.runtimeMetadata.runtimeId,
+				// 			widget_state: {
+				// 				model_name: data.state._model_name,
+				// 				model_module: data.state._model_module,
+				// 				model_module_version: data.state._model_module_version,
+				// 				state: data.state
+				// 			}
+				// 		};
+
+				// 		// Register the widget client and update the list of primary widgets
+				// 		const widgetClient = new IPyWidgetClientInstance(event.client, metadata);
+				// 		this.registerIPyWidgetClient(widgetClient, runtime);
+				// 	}
+				// }));
+			}
+		}));
+
 		this._extensionService.getExtension('vscode.positron-ipywidgets').then((extension) => {
 			if (!extension) {
 				throw new Error('positron-ipywidgets extension not found');
@@ -305,6 +347,36 @@ class PositronIPyWidgetsInstance extends Disposable {
 				}));
 			this._editor.postMessage({ type: 'append_stylesheet', href: styleUri.toString() });
 		});
+	}
+
+	private attachClient(client: IRuntimeClientInstance<any, any>) {
+		const comm_id = client.getClientId();
+
+		client.onDidReceiveData(data => {
+			// Handle an update from the runtime
+			console.log('RECV comm_msg:', data);
+
+			if (data?.method === 'update') {
+				this._editor.postMessage({ type: 'comm_msg', comm_id, content: { data } });
+			} else {
+				console.error(`Unhandled message for comm ${comm_id}: ${JSON.stringify(data)}`);
+			}
+		});
+
+		const stateChangeEvent = Event.fromObservable(client.clientState);
+		// TODO: Dispose!
+		stateChangeEvent(state => {
+			console.log('client.clientState changed:', state);
+			if (state === RuntimeClientState.Closed && this._clients.has(comm_id)) {
+				this._clients.delete(comm_id);
+				this._editor.postMessage({ type: 'comm_close', comm_id });
+			}
+		});
+
+		// TODO: This is writing the comm_id passed from the preload script, not the actual comm_id
+		//       that the session knows about...
+
+		this._clients.set(comm_id, client);
 	}
 
 	private async handleCommInfoRequest() {
@@ -351,39 +423,12 @@ class PositronIPyWidgetsInstance extends Disposable {
 				metadata,
 			);
 		}
-
-		// TODO: Will we only add these once?
-		client.onDidReceiveData(data => {
-			// Handle an update from the runtime
-			console.log('RECV comm_msg:', data);
-
-			if (data?.method === 'update') {
-				this._editor.postMessage({ type: 'comm_msg', comm_id, content: { data } });
-			} else {
-				console.error(`Unhandled message for comm ${comm_id}: ${JSON.stringify(data)}`);
-			}
-		});
-
-		const stateChangeEvent = Event.fromObservable(client.clientState);
-		// TODO: Dispose!
-		stateChangeEvent(state => {
-			console.log('client.clientState changed:', state);
-			if (state === RuntimeClientState.Closed && this._clients.has(comm_id)) {
-				this._clients.delete(comm_id);
-				this._editor.postMessage({ type: 'comm_close', comm_id });
-			}
-		});
-
-		// TODO: This is writing the comm_id passed from the preload script, not the actual comm_id
-		//       that the session knows about...
-
-		this._clients.set(comm_id, client);
 	}
 
 	private async handleCommMsg(message: any) {
 		const { comm_id, msg_id } = message;
 		const content = message.content;
-		console.log('SEND comm_msg:', content);
+		console.log('SEND comm_msg:', comm_id, content);
 		const client = this._clients.get(comm_id);
 		if (!client) {
 			throw new Error(`Client not found for comm_id: ${comm_id}`);
