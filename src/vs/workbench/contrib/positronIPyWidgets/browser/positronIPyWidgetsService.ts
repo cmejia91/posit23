@@ -21,6 +21,7 @@ import { ILogService } from 'vs/platform/log/common/log';
 import { asWebviewUri } from 'vs/workbench/contrib/webview/common/webview';
 import { IExtensionService } from 'vs/workbench/services/extensions/common/extensions';
 import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
+import { IRuntimeCommMessage, IWidgetCommMessage } from './types';
 
 export interface IPositronIPyWidgetCommOpenData {
 	state: {
@@ -397,7 +398,7 @@ class PositronIPyWidgetsInstance extends Disposable {
 		}
 	}
 
-	private async handleCommMsg(message: any) {
+	private async handleCommMsg(message: IWidgetCommMessage) {
 		const { comm_id, msg_id } = message;
 		const content = message.content;
 		console.log('SEND comm_msg:', comm_id, content);
@@ -410,12 +411,13 @@ class PositronIPyWidgetsInstance extends Disposable {
 			const output = await client.performRpc(content, 5000);
 			// TODO: Do we need the buffers attribute too (not buffer_paths)?
 			console.log('RECV comm_msg:', output);
-			this._editor.postMessage({
+			const reply: IRuntimeCommMessage = {
 				type: 'comm_msg',
-				comm_id: comm_id,
+				comm_id,
 				parent_header: { msg_id },
 				content: { data: output }
-			});
+			};
+			this._editor.postMessage(reply);
 			// TODO: Is this correct? Simulate a idle state here so ipywidgets knows that the RPC call is done
 			// webview.postMessage({ type: 'state', state: 'idle' });
 			// } else {

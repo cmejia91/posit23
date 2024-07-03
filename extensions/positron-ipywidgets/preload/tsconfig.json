@@ -12,5 +12,9 @@
 			"DOM",
 			"DOM.Iterable"
 		]
-	}
+	},
+	"include": [
+		"*",
+		"../../../src/vs/workbench/contrib/positronIPyWidgets/browser/types.d.ts"
+	]
 }
