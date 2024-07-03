@@ -204,6 +204,7 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 			output_location: PositronOutputLocation.Plot,
 			kind: RuntimeOutputKind.IPyWidget,
 			data: htmlData.data,
+			metadata: {},
 		} as ILanguageRuntimeMessageOutput;
 
 		const webview = await this._notebookOutputWebviewService.createNotebookOutputWebview(

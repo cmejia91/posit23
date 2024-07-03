@@ -31,6 +31,9 @@ export interface JupyterMessagePacket {
 	/** The message itself */
 	message: JupyterMessageSpec;
 
+	/** Additional metadata, if any */
+	metadata: Record<string, any>;
+
 	/** The socket on which the message was received, or is to be sent */
 	socket: JupyterSockets;
 }

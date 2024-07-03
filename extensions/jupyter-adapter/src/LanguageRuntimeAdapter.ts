@@ -667,6 +667,7 @@ export class LanguageRuntimeSessionAdapter
 			comm_id: msg.comm_id,
 			target_name: msg.target_name,
 			data: msg.data,
+			metadata: message.metadata,
 		} as positron.LanguageRuntimeCommOpen);
 	}
 
@@ -684,6 +685,7 @@ export class LanguageRuntimeSessionAdapter
 			type: positron.LanguageRuntimeMessageType.CommData,
 			comm_id: msg.comm_id,
 			data: msg.data,
+			metadata: message.metadata,
 		} as positron.LanguageRuntimeCommMessage);
 	}
 
@@ -701,6 +703,7 @@ export class LanguageRuntimeSessionAdapter
 			type: positron.LanguageRuntimeMessageType.CommClosed,
 			comm_id: msg.comm_id,
 			data: msg.data,
+			metadata: message.metadata,
 		} as positron.LanguageRuntimeCommClosed);
 	}
 
@@ -718,6 +721,7 @@ export class LanguageRuntimeSessionAdapter
 			when: message.when,
 			type: positron.LanguageRuntimeMessageType.Output,
 			data: data.data as any,
+			metadata: message.metadata,
 		} as positron.LanguageRuntimeOutput);
 	}
 
@@ -736,7 +740,8 @@ export class LanguageRuntimeSessionAdapter
 			type: positron.LanguageRuntimeMessageType.Error,
 			name: data.ename,
 			message: data.evalue,
-			traceback: data.traceback
+			traceback: data.traceback,
+			metadata: message.metadata,
 		} as positron.LanguageRuntimeError);
 	}
 
@@ -754,6 +759,7 @@ export class LanguageRuntimeSessionAdapter
 			when: message.when,
 			type: positron.LanguageRuntimeMessageType.Result,
 			data: data.data as any,
+			metadata: message.metadata,
 		} as positron.LanguageRuntimeResult);
 	}
 
@@ -783,7 +789,8 @@ export class LanguageRuntimeSessionAdapter
 			when: message.when,
 			type: positron.LanguageRuntimeMessageType.Stream,
 			name: data.name,
-			text: data.text
+			text: data.text,
+			metadata: message.metadata,
 		} as positron.LanguageRuntimeStream);
 	}
 
@@ -801,7 +808,8 @@ export class LanguageRuntimeSessionAdapter
 			when: message.when,
 			type: positron.LanguageRuntimeMessageType.Input,
 			code: data.code,
-			execution_count: data.execution_count
+			execution_count: data.execution_count,
+			metadata: message.metadata,
 		} as positron.LanguageRuntimeInput);
 	}
 
@@ -818,7 +826,8 @@ export class LanguageRuntimeSessionAdapter
 			parent_id: message.originId,
 			when: message.when,
 			type: positron.LanguageRuntimeMessageType.State,
-			state: data.execution_state
+			state: data.execution_state,
+			metadata: message.metadata,
 		} as positron.LanguageRuntimeState);
 	}
 
@@ -1033,6 +1042,6 @@ export class LanguageRuntimeSessionAdapter
 	}
 
 	public getKernelLogFile(): string {
-		return this._kernel.getKernelLogFilePath()
+		return this._kernel.getKernelLogFilePath();
 	}
 }
