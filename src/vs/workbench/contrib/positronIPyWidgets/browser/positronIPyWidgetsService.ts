@@ -283,9 +283,6 @@ class PositronIPyWidgetsInstance extends Disposable {
 				case 'comm_info_request':
 					await this.handleCommInfoRequest();
 					break;
-				case 'comm_open':
-					this.handleCommOpen(message);
-					break;
 				case 'comm_msg':
 					this.handleCommMsg(message);
 					break;
@@ -363,42 +360,6 @@ class PositronIPyWidgetsInstance extends Disposable {
 		this._editor.postMessage({ data: { type: 'comm_info_reply', comms } });
 	}
 
-	// TODO: Types...
-	private async handleCommOpen(message: any) {
-		const { comm_id, target_name, metadata } = message.content;
-		console.log('SEND comm_open', comm_id, target_name, metadata);
-
-		if (this._clients.has(comm_id)) {
-			return;
-		}
-
-		let client = this._session.clientInstances.find(
-			client => client.getClientType() === target_name &&
-				client.getClientId() === comm_id);
-
-		// TODO: Should we allow creating jupyter.widget comms?
-		if (!client) {
-			// TODO: Support creating a comm from the frontend
-			// TODO: Should we create the client elsewhere?
-			let runtimeClientType: RuntimeClientType;
-			switch (target_name as string) {
-				case 'jupyter.widget':
-					runtimeClientType = RuntimeClientType.IPyWidget;
-					break;
-				case 'jupyter.widget.control':
-					runtimeClientType = RuntimeClientType.IPyWidgetControl;
-					break;
-				default:
-					throw new Error(`Unknown target_name: ${target_name}`);
-			}
-			client = await this._session.createClient<any, any>(
-				runtimeClientType,
-				{},
-				metadata,
-			);
-		}
-	}
-
 	private async handleCommMsg(message: IWidgetCommMessage) {
 		const { comm_id, msg_id } = message;
 		const content = message.content;
@@ -431,3 +392,25 @@ class PositronIPyWidgetsInstance extends Disposable {
 	}
 
 }
+
+// class WidgetClientInstance extends Disposable {
+// 	constructor(
+// 		client: IRuntimeClientInstance<any, any>,
+// 	) {
+
+// 	}
+// }
+
+// interface UpdateEvent {
+// }
+
+// class PositronIPyWidgetComm extends PositronBaseComm {
+// 	constructor(
+// 		instance: IRuntimeClientInstance<any, any>,
+// 	) {
+// 		super(instance);
+// 		this.onDidUpdate = super.createEventEmitter('update', []);
+// 	}
+
+// 	onDidUpdate: Event<UpdateEvent>;
+// }

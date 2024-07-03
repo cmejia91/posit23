@@ -131,26 +131,8 @@ class HTMLManager extends ManagerBase {
 		return module[className];
 	}
 
-	protected override async _create_comm(comm_target_name: string, model_id?: string | undefined, data?: JSONObject | undefined, metadata?: JSONObject | undefined, buffers?: ArrayBuffer[] | ArrayBufferView[] | undefined): Promise<base.IClassicComm> {
-		if (!model_id) {
-			// TODO: Supporting creating a comm from the frontend
-			throw new Error('model_id is required');
-		}
-		this.context.postKernelMessage(
-			{
-				type: 'comm_open',
-				// TODO: need content?
-				content: {
-					comm_id: model_id,
-					target_name: comm_target_name,
-					data,
-					metadata,
-					buffers
-				}
-			}
-		);
-		const comm = new Comm(model_id, comm_target_name, this.context);
-		return comm;
+	protected override async _create_comm(_comm_target_name: string, _model_id?: string | undefined, _data?: JSONObject | undefined, _metadata?: JSONObject | undefined, _buffers?: ArrayBuffer[] | ArrayBufferView[] | undefined): Promise<base.IClassicComm> {
+		throw new Error('Method not implemented.');
 	}
 
 	protected override _get_comm_info(): Promise<{}> {
