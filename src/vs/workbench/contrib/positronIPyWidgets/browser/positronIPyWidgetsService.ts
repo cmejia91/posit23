@@ -330,7 +330,8 @@ class PositronIPyWidgetsInstance extends Disposable {
 			console.log('RECV comm_msg:', data);
 
 			if (data?.method === 'update') {
-				this._editor.postMessage({ type: 'comm_msg', comm_id, content: { data } });
+				const message: IRuntimeCommMessage = { type: 'comm_msg', comm_id, content: { data } };
+				this._editor.postMessage(message);
 			} else {
 				console.error(`Unhandled message for comm ${comm_id}: ${JSON.stringify(data)}`);
 			}

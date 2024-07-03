@@ -13,6 +13,6 @@ export interface IWidgetCommMessage {
 export interface IRuntimeCommMessage {
 	type: 'comm_msg';
 	comm_id: string;
-	parent_header: { msg_id: string };
+	parent_header?: { msg_id: string };
 	content: { data: any };
 }
