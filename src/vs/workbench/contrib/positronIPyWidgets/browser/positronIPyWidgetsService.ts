@@ -285,10 +285,9 @@ class PositronIPyWidgetsInstance extends Disposable {
 				case 'comm_open':
 					this.handleCommOpen(message);
 					break;
-				case 'comm_msg': {
+				case 'comm_msg':
 					this.handleCommMsg(message);
 					break;
-				}
 				default:
 					console.warn('Unhandled message:', message);
 					break;
@@ -307,33 +306,6 @@ class PositronIPyWidgetsInstance extends Disposable {
 
 				// TODO: Can there be a race condition here somehow?
 				this.attachClient(event.client);
-
-				// const clientId = event.client.getClientId();
-				// 		// Check to see if we we already have a widget client for this
-				// 		// client ID. If so, we don't need to do anything.
-				// 		if (this.hasWidget(runtime.runtimeMetadata.runtimeId, clientId)) {
-				// 			return;
-				// 		}
-
-				// 		const data = event.message.data as IPositronIPyWidgetCommOpenData;
-
-				// 		// Create the metadata object
-				// 		const metadata: IPositronIPyWidgetMetadata = {
-				// 			id: clientId,
-				// 			runtime_id: runtime.runtimeMetadata.runtimeId,
-				// 			widget_state: {
-				// 				model_name: data.state._model_name,
-				// 				model_module: data.state._model_module,
-				// 				model_module_version: data.state._model_module_version,
-				// 				state: data.state
-				// 			}
-				// 		};
-
-				// 		// Register the widget client and update the list of primary widgets
-				// 		const widgetClient = new IPyWidgetClientInstance(event.client, metadata);
-				// 		this.registerIPyWidgetClient(widgetClient, runtime);
-				// 	}
-				// }));
 			}
 		}));
 

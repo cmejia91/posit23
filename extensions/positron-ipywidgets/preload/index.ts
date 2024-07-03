@@ -12,12 +12,9 @@ import { ManagerBase } from '@jupyter-widgets/base-manager';
 // TODO: Do we really need to depend on this?
 import { JSONObject, JSONValue, UUID } from '@lumino/coreutils';
 import { VSCodeEvent } from 'vscode-notebook-renderer/events';
-// import { Event } from 'vscode';
 
-// TODO: Need these?
 import '@fortawesome/fontawesome-free/css/all.min.css';
 import '@fortawesome/fontawesome-free/css/v4-shims.min.css';
-
 import '@lumino/widgets/style/index.css';
 import '@jupyter-widgets/base/css/index.css';
 import '@jupyter-widgets/controls/css/widgets.css'; // This imports labvariables and widgets-base
@@ -65,12 +62,7 @@ class Comm implements base.IClassicComm {
 
 	}
 
-	open(data: JSONValue, callbacks?: base.ICallbacks | undefined, metadata?: JSONObject | undefined, buffers?: ArrayBuffer[] | ArrayBufferView[] | undefined): string {
-		console.log('Comm.open', data, callbacks, metadata, buffers);
-		if (callbacks) {
-			throw new Error('Callbacks not supported in open');
-		}
-		// TODO: Move open logic here?
+	open(_data: JSONValue, _callbacks?: base.ICallbacks | undefined, _metadata?: JSONObject | undefined, _buffers?: ArrayBuffer[] | ArrayBufferView[] | undefined): string {
 		throw new Error('Method not implemented.');
 	}
 
@@ -360,15 +352,9 @@ class HTMLManager extends ManagerBase {
 		await this.handle_comm_open(comm, message as any);
 		console.log('Opened comm:', comm);
 	}
-
-	async loadFromKernel(): Promise<void> {
-		await super._loadFromKernel();
-	}
 }
 
 export async function activate(context: KernelPreloadContext): Promise<void> {
-	console.log('Activated positron-ipywidgets preload! context:', context);
-
 	// We bundle the main widgets packages with the preload script.
 	// However, we still need to define them as AMD modules since if a third party module
 	// depends on them it will try to load them with requirejs.
@@ -393,6 +379,4 @@ export async function activate(context: KernelPreloadContext): Promise<void> {
 
 	const manager = new HTMLManager(context);
 	(window as any).positronIPyWidgetManager = manager;
-
-	console.log('Preload set manager: ', manager);
 }
