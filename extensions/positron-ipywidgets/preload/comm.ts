@@ -6,15 +6,16 @@
 import * as base from '@jupyter-widgets/base';
 import { JSONObject, JSONValue, UUID } from '@lumino/coreutils';
 import { Disposable } from 'vscode-notebook-renderer/events';
-import type { IIPyWidgetsMessaging, ICommMessage } from '../../../src/vs/workbench/contrib/positronIPyWidgets/browser/positronIPyWidgetsMessaging.js';
+import type { IIPyWidgetsMessaging, ICommMessage, ICommClose } from '../../../src/vs/workbench/contrib/positronIPyWidgets/browser/positronIPyWidgetsMessaging.js';
+import { KernelMessage } from '@jupyterlab/services';
 
 /**
  * An IClassicComm that interfaces with the main thread Positron IPyWidgets service.
  */
 export class Comm implements base.IClassicComm, Disposable {
 	private _disposables: Disposable[] = [];
-	private _on_msg: ((x: any) => void) | undefined;
-	private _on_close: ((x: any) => void) | undefined;
+	private _on_msg: ((x: KernelMessage.ICommMsgMsg) => void) | undefined;
+	private _on_close: ((x: KernelMessage.ICommCloseMsg) => void) | undefined;
 	private _callbacks = new Map<string, base.ICallbacks>();
 
 	/**
@@ -149,7 +150,26 @@ export class Comm implements base.IClassicComm, Disposable {
 	 */
 	private handle_msg(message: ICommMessage): void {
 		console.log('Comm.handle_msg', message);
-		this._on_msg?.(message);
+		this._on_msg?.({
+			content: {
+				comm_id: this.comm_id,
+				data: message.content.data,
+			},
+			// Stub the rest of the interface - these are not currently used by widget libraries.
+			channel: 'iopub',
+			header: {
+				date: '',
+				msg_id: message.msg_id ?? '',
+				msg_type: message.type,
+				session: '',
+				username: '',
+				version: '',
+			},
+			parent_header: {
+				// msg_id: message.msg_id
+			},
+			metadata: {},
+		});
 
 		// Simulate an 'idle' status message after an RPC response is received from the runtime.
 		const msgId = message.msg_id;
@@ -159,7 +179,9 @@ export class Comm implements base.IClassicComm, Disposable {
 			if (callbacks) {
 				// Call the iopub.status callback with a stubbed 'idle' status message.
 				callbacks.iopub?.status?.({
-					content: { execution_state: 'idle' },
+					content: {
+						execution_state: 'idle'
+					},
 					// Stub the rest of the interface - these are not currently used by widget libraries.
 					channel: 'iopub',
 					header: {
@@ -182,9 +204,25 @@ export class Comm implements base.IClassicComm, Disposable {
 	 *
 	 * @param message The close message.
 	 */
-	private handle_close(message: any): void {
+	private handle_close(message: ICommClose): void {
 		console.log('Comm.handle_close', message);
-		this._on_close?.(message);
+		this._on_close?.({
+			content: {
+				comm_id: this.comm_id,
+				data: {},
+			},
+			channel: 'shell',
+			header: {
+				date: '',
+				msg_id: '',
+				msg_type: 'comm_close',
+				session: '',
+				username: '',
+				version: '',
+			},
+			parent_header: {},
+			metadata: {},
+		});
 	}
 
 	dispose(): void {

@@ -68,9 +68,14 @@ export class PositronWidgetManager extends ManagerBase implements base.IWidgetMa
 		await this.handle_comm_open(
 			comm,
 			{
-				...message,
-				channel: 'shell',
+				content: {
+					comm_id: message.comm_id,
+					target_name: message.target_name,
+					data: message.content,
+				},
+				metadata: message.metadata,
 				// Stub the rest of the interface - these are not currently used by handle_comm_open.
+				channel: 'iopub',
 				header: {
 					date: '',
 					msg_id: '',

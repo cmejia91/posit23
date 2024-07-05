@@ -155,6 +155,7 @@ class IPyWidgetsInstance extends Disposable {
 			this._clients.set(client.getClientId(), ipywidgetsClient);
 		}));
 
+		// Notify the editor to append the bundled widgets stylesheet.
 		this._extensionService.getExtension('vscode.positron-ipywidgets').then((extension) => {
 			if (!extension) {
 				throw new Error('positron-ipywidgets extension not found');
@@ -235,6 +236,10 @@ class IPyWidgetsClientInstance extends Disposable {
 		const stateChangeEvent = Event.fromObservable(_client.clientState);
 		this._register(stateChangeEvent(state => {
 			if (state === RuntimeClientState.Closed) {
+				this._messaging.postMessage({
+					type: 'comm_close',
+					comm_id: this._client.getClientId(),
+				});
 				this._closeEmitter.fire();
 			}
 		}));
@@ -244,7 +249,7 @@ class IPyWidgetsClientInstance extends Disposable {
 			type: 'comm_open',
 			comm_id: this._client.getClientId(),
 			target_name: this._client.getClientType(),
-			content: { data: message.data },
+			content: message.data,
 			metadata: message.metadata,
 		});
 	}
