@@ -107,11 +107,6 @@ export interface IPositronIPyWidgetsService {
 	readonly _serviceBrand: undefined;
 
 	/**
-	 * Gets the individual IPyWidget client instances.
-	 */
-	readonly positronWidgetInstances: IPositronIPyWidgetClient[];
-
-	/**
 	 * Notifies subscribers when a new plot client is created from IPyWidgets.
 	 */
 	readonly onDidCreatePlot: Event<IPositronPlotClient>;

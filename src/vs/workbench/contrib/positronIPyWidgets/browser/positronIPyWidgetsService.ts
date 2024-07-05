@@ -9,7 +9,6 @@ import { LanguageRuntimeSessionMode } from 'vs/workbench/services/languageRuntim
 import { ILanguageRuntimeSession, IRuntimeClientInstance, IRuntimeSessionService, RuntimeClientType } from 'vs/workbench/services/runtimeSession/common/runtimeSessionService';
 import { Emitter, Event } from 'vs/base/common/event';
 import { IPositronIPyWidgetsService } from 'vs/workbench/services/positronIPyWidgets/common/positronIPyWidgetsService';
-import { IPyWidgetClientInstance } from 'vs/workbench/services/languageRuntime/common/languageRuntimeIPyWidgetClient';
 import { WidgetPlotClient } from 'vs/workbench/contrib/positronPlots/browser/widgetPlotClient';
 import { INotebookEditorService } from 'vs/workbench/contrib/notebook/browser/services/notebookEditorService';
 import { INotebookEditor } from 'vs/workbench/contrib/notebook/browser/notebookBrowser';
@@ -24,9 +23,6 @@ import { RuntimeClientState } from 'vs/workbench/services/languageRuntime/common
 export class PositronIPyWidgetsService extends Disposable implements IPositronIPyWidgetsService {
 	/** Needed for service branding in dependency injector. */
 	declare readonly _serviceBrand: undefined;
-
-	/** The list of IPyWidgets. */
-	private readonly _widgets = new Map<string, IPyWidgetClientInstance>();
 
 	private readonly _iPyWidgetsInstancesBySessionId = new Map<string, IPyWidgetsInstance>();
 
@@ -102,11 +98,6 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 	}
 
 	onDidCreatePlot: Event<WidgetPlotClient> = this._onDidCreatePlot.event;
-
-	// Gets the individual widget client instances.
-	get positronWidgetInstances(): IPyWidgetClientInstance[] {
-		return Array.from(this._widgets.values());
-	}
 
 	/**
 	 * Placeholder for service initialization.
