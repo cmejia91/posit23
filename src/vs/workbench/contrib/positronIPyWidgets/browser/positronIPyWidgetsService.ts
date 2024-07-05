@@ -5,7 +5,7 @@
 // TODO: Should we move this to workbench/services/positronIPyWidgets/browser/positronIPyWidgetsService.ts?
 
 import { Disposable, DisposableStore } from 'vs/base/common/lifecycle';
-import { LanguageRuntimeSessionMode } from 'vs/workbench/services/languageRuntime/common/languageRuntimeService';
+import { ILanguageRuntimeMessageCommOpen, LanguageRuntimeSessionMode } from 'vs/workbench/services/languageRuntime/common/languageRuntimeService';
 import { ILanguageRuntimeSession, IRuntimeClientInstance, IRuntimeSessionService, RuntimeClientType } from 'vs/workbench/services/runtimeSession/common/runtimeSessionService';
 import { Emitter, Event } from 'vs/base/common/event';
 import { IPositronIPyWidgetsService } from 'vs/workbench/services/positronIPyWidgets/common/positronIPyWidgetsService';
@@ -19,6 +19,9 @@ import { IExtensionService } from 'vs/workbench/services/extensions/common/exten
 import { IRuntimeCommMessage, IWidgetCommMessage } from './types';
 import { RuntimeClientState } from 'vs/workbench/services/languageRuntime/common/languageRuntimeClientInstance';
 
+/**
+ * The PositronIPyWidgetsService is responsible for managing IPyWidgetsInstances.
+ */
 export class PositronIPyWidgetsService extends Disposable implements IPositronIPyWidgetsService {
 	/** Needed for service branding in dependency injector. */
 	declare readonly _serviceBrand: undefined;
@@ -114,7 +117,7 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 
 class IPyWidgetsInstance extends Disposable {
 
-	private readonly _clients = new Map<string, WidgetClientInstance>();
+	private readonly _clients = new Map<string, IPyWidgetsClientInstance>();
 
 	/**
 	 * @param _session The language runtime session.
@@ -123,53 +126,31 @@ class IPyWidgetsInstance extends Disposable {
 	 * @param _logService The log service.
 	 */
 	constructor(
-		private readonly _session: ILanguageRuntimeSession,
+		_session: ILanguageRuntimeSession,
 		private readonly _editor: INotebookEditor,
 		private readonly _extensionService: IExtensionService,
 		_logService: ILogService,
 	) {
 		super();
 
-		const frontend = new WidgetsFrontend(_editor, _logService);
-
-		// Handle the creation of new IPyWidget client instances.
-		this._register(this._session.onDidCreateClientInstance(({ client, message }) => {
+		// Handle the creation of new client instances.
+		this._register(_session.onDidCreateClientInstance(({ client, message }) => {
 			if (client.getClientType() !== RuntimeClientType.IPyWidget) {
 				return;
 			}
 
-			// Notify the widget frontend that a new client instance was created.
-			// TODO: Move this into WidgetClientInstance constructor?
-			frontend.createClient(client.getClientId(), message.data, message.metadata);
+			const ipywidgetsClient = new IPyWidgetsClientInstance(
+				message,
+				client,
+				this._editor,
+				_logService,
+			);
 
-			// TODO: Can there be a race condition here somehow?
-			// TODO: Maybe we should move this above the postMessage.
-			const instance = new WidgetClientInstance(client, this._editor);
-			this._clients.set(client.getClientId(), instance);
-		}));
+			this._register(ipywidgetsClient.onDidClose(() => {
+				this._clients.delete(client.getClientId());
+			}));
 
-		// Handle messages from widget frontends (i.e. the ipywidgets notebook preload script).
-		this._register(frontend.onDidReceiveMessage(async (message) => {
-			console.log('SEND comm_msg:', message.comm_id, message.content);
-			const content = message.content;
-			const client = this._clients.get(message.comm_id);
-			if (!client) {
-				throw new Error(`Client not found for comm_id: ${message.comm_id}`);
-			}
-			// TODO: Maybe it's better to separate these in the preload? Is that possible?
-			if (['request_states', 'update'].includes(content?.method)) {
-				const output = await client.performRpc(content, 5000);
-				console.log('RECV comm_msg:', output);
-				const reply: IRuntimeCommMessage = {
-					type: 'comm_msg',
-					comm_id: message.comm_id,
-					parent_header: { msg_id: message.msg_id },
-					content: { data: output }
-				};
-				this._editor.postMessage(reply);
-			} else {
-				client.sendMessage(content);
-			}
+			this._clients.set(client.getClientId(), ipywidgetsClient);
 		}));
 
 		this._extensionService.getExtension('vscode.positron-ipywidgets').then((extension) => {
@@ -186,101 +167,70 @@ class IPyWidgetsInstance extends Disposable {
 
 }
 
-class WidgetClientInstance extends Disposable {
-	private readonly comm: PositronWidgetComm;
-
-	constructor(
-		private readonly client: IRuntimeClientInstance<any, any>,
-		private readonly editor: INotebookEditor,
-	) {
-		super();
-
-		this.comm = new PositronWidgetComm(client);
-
-		this._register(this.comm.onDidUpdate((event) => {
-			console.log('PositronWidgetComm.onDidUpdate:', event);
-			// TODO: Continue here. Uncomment below and comment out the onDidReceiveData further down.
-			//       Continue refactoring stuff to this class and the PositronWidgetComm class.
-			//       Then remove what we don't need from the previous ipywidgets implementation.
-			// this.editor.postMessage({
-			// 	type: 'comm_msg',
-			// 	comm_id: this.client.getClientId(),
-			// 	content: { data: event }
-			// } as IRuntimeCommMessage);
-		}));
-
-		this._register(this.comm.onDidClose(() => {
-			console.log('PositronWidgetComm.onDidClose');
-		}));
-
-		// Forward client messages to the editor.
-		client.onDidReceiveData(data => {
-			console.log('RECV comm_msg:', data);
-
-			if (data?.method === 'update') {
-				const message: IRuntimeCommMessage = {
-					type: 'comm_msg',
-					comm_id: this.client.getClientId(),
-					content: { data }
-				};
-				this.editor.postMessage(message);
-			} else {
-				console.error(`Unhandled message for comm ${this.client.getClientId()}: ${JSON.stringify(data)}`);
-			}
-		});
-
-		// const stateChangeEvent = Event.fromObservable(client.clientState);
-		// // TODO: Dispose!
-		// stateChangeEvent(state => {
-		// 	console.log('client.clientState changed:', state);
-		// 	if (state === RuntimeClientState.Closed && this._clients.has(comm_id)) {
-		// 		this._clients.delete(comm_id);
-		// 		this.editor.postMessage({ type: 'comm_close', comm_id });
-		// 	}
-		// });
-
-	}
-
-	// TODO: Better abstraction
-	async performRpc(content: any, timeout: number): Promise<any> {
-		return this.client.performRpc(content, timeout);
-	}
-
-	sendMessage(content: any) {
-		this.client.sendMessage(content);
-	}
-}
-
-interface UpdateEvent {
-	method: 'update';
-	// TODO: Need buffer_paths?
-	buffer_paths: string[];
-	state: any;
-}
-
-// TODO: I'm not sure if we need this class... Maybe we only use it in other services
-//       since its code generated.
-class PositronWidgetComm extends Disposable {
+class IPyWidgetsClientInstance extends Disposable {
 	private readonly _closeEmitter = new Emitter<void>();
-	private readonly _updateEmitter = new Emitter<UpdateEvent>();
 
 	onDidClose = this._closeEmitter.event;
-	onDidUpdate = this._updateEmitter.event;
 
 	constructor(
-		private readonly instance: IRuntimeClientInstance<any, any>,
+		message: ILanguageRuntimeMessageCommOpen,
+		private readonly _client: IRuntimeClientInstance<any, any>,
+		private readonly _editor: INotebookEditor,
+		private readonly _logService: ILogService,
 	) {
 		super();
-		this._register(instance);
-		this._register(instance.onDidReceiveData((data) => {
-			if (data?.method === 'update') {
-				this._updateEmitter.fire(data);
-			} else {
-				console.error(`Unhandled message for comm ${this.instance.getClientId()}: ${JSON.stringify(data)}`);
+
+		// Forward messages from the notebook editor to the client.
+		this._register(_editor.onDidReceiveMessage(async (event) => {
+			// TODO: Type this...
+			const message = event.message as IWidgetCommMessage;
+			if (message.comm_id !== this._client.getClientId()) {
+				return;
+			}
+			switch (message.type) {
+				case 'comm_msg': {
+					// TODO: Must be a better way to distinguish RPCs from fire-and-forget messages
+					if (['request_states', 'update'].includes(message.content.method)) {
+						await this.performRpc(message.content, 5000, message.msg_id);
+					} else {
+						this._client.sendMessage(message);
+					}
+					break;
+				}
+				default:
+					this._logService.warn(
+						`Unhandled message from notebook '${this._editor.textModel?.uri}' ` +
+						`for client ${this._client.getClientId()}: ${JSON.stringify(message)}`
+					);
+					break;
 			}
 		}));
 
-		const stateChangeEvent = Event.fromObservable(instance.clientState);
+		// Forward messages from the client to the notebook editor.
+		this._register(_client.onDidReceiveData(data => {
+			this._logService.debug('RECV comm_msg:', data);
+
+			switch (data.method) {
+				case 'update':
+					this._editor.postMessage({
+						type: 'comm_msg',
+						comm_id: this._client.getClientId(),
+						content: { data }
+					} as IRuntimeCommMessage);
+					break;
+				default:
+					this._logService.warn(
+						`Unhandled message from client ${this._client.getClientId()} ` +
+						`for notebook ${this._editor.textModel?.uri}: ${JSON.stringify(data)}`
+					);
+					break;
+			}
+		}));
+
+		/**
+		 * If the client is closed, emit the close event.
+		 */
+		const stateChangeEvent = Event.fromObservable(_client.clientState);
 		this._register(stateChangeEvent(state => {
 			// If the client is closed, emit the close event.
 			if (state === RuntimeClientState.Closed) {
@@ -288,54 +238,31 @@ class PositronWidgetComm extends Disposable {
 			}
 		}));
 
-		this.onDidClose = this._closeEmitter.event;
-	}
-
-	/**
-	 * Provides access to the ID of the client instance.
-	 */
-	get clientId(): string {
-		return this.instance.getClientId();
-	}
-}
-
-class WidgetsFrontend extends Disposable {
-	private readonly _messageEmitter = new Emitter<IWidgetCommMessage>();
-
-	onDidReceiveMessage = this._messageEmitter.event;
-
-	constructor(
-		private readonly _editor: INotebookEditor,
-		private readonly _logService: ILogService,
-	) {
-		super();
-
-		this._register(this._editor.onDidReceiveMessage(async (event) => {
-			const message = event.message as IWidgetCommMessage;
-			switch (message.type) {
-				case 'comm_msg':
-					this._messageEmitter.fire(message);
-					break;
-				default:
-					this._logService.warn(`Unhandled message for notebook:`, this._editor.textModel?.uri);
-					break;
-			}
-		}));
-
-		// TODO: Should this class forward messages to the frontend? Or should its owner do that?
-		//       The parent class could be an "adapter"?
-		//       Maybe the WidgetClientInstance should actually notifiy the frontend on its own creation?
-
-	}
-
-	// TODO: Should type be a param?
-	createClient(id: string, params: any, metadata: any) {
+		// Notify the notebook editor about the new client instance.
+		// TODO: Type this
 		this._editor.postMessage({
 			type: 'comm_open',
-			comm_id: id,
-			target_name: RuntimeClientType.IPyWidget,
-			content: { data: params },
-			metadata,
+			comm_id: this._client.getClientId(),
+			target_name: this._client.getClientType(),
+			content: { data: message.data },
+			metadata: message.metadata,
 		});
+
+	}
+
+	private async performRpc(request: any, timeout: number, msgId: string): Promise<void> {
+		// TODO: Maybe performRpc should allow us to pass a msgId?
+		//       Or maybe we can use our own msgIds in this layer?
+		// Perform the RPC with the client.
+		const output = await this._client.performRpc(request, timeout);
+
+		// Forward the output to the notebook editor.
+		this._logService.info('RECV comm_msg:', output);
+		this._editor.postMessage({
+			type: 'comm_msg',
+			comm_id: this._client.getClientId(),
+			parent_header: { msg_id: msgId },
+			content: { data: output }
+		} as IRuntimeCommMessage);
 	}
 }
