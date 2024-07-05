@@ -7,7 +7,7 @@ import { ActivationFunction } from 'vscode-notebook-renderer';
 import { IWidgetManager, DOMWidgetView } from '@jupyter-widgets/base';
 
 interface IPositronWidgetManager extends IWidgetManager {
-	display_view(view: DOMWidgetView, el: HTMLElement): Promise<void>;
+	display_view(view: DOMWidgetView, element: HTMLElement): Promise<void>;
 }
 
 export const activate: ActivationFunction = async (_context) => {

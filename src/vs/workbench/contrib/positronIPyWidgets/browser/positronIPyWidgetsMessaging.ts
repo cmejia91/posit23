@@ -3,26 +3,27 @@
  *  Licensed under the Elastic License 2.0. See LICENSE.txt for license information.
  *--------------------------------------------------------------------------------------------*/
 
-export interface IAppendStylesheetMessage {
+export interface IAppendStylesheet {
 	type: 'append_stylesheet';
 	href: string;
 }
 
-export interface IRuntimeCommClose {
+export interface ICommClose {
 	type: 'comm_close';
-	content: { comm_id: string };
+	comm_id: string;
 }
 
-export interface IRuntimeCommMessage {
+export interface ICommMessage {
 	type: 'comm_msg';
 	comm_id: string;
-	parent_header?: { msg_id: string };
-	// TODO: Put this somewhere else?
+	content: {
+		data: any;
+		method?: string;
+	};
 	msg_id?: string;
-	content: { data: any, method?: string };
 }
 
-export interface IRuntimeCommOpen {
+export interface ICommOpen {
 	type: 'comm_open';
 	comm_id: string;
 	target_name: string;
@@ -30,12 +31,10 @@ export interface IRuntimeCommOpen {
 	metadata: any;
 }
 
-export type IIPyWidgetsMessage = IAppendStylesheetMessage |
-	IRuntimeCommClose |
-	IRuntimeCommMessage |
-	IRuntimeCommOpen;
-
-export type IRuntimeMessage = IRuntimeCommMessage | IAppendStylesheetMessage;
+export type IIPyWidgetsMessage = IAppendStylesheet |
+	ICommClose |
+	ICommMessage |
+	ICommOpen;
 
 export interface Disposable {
 	dispose(): void;
@@ -47,5 +46,5 @@ export interface VSCodeEvent<T> {
 
 export interface IIPyWidgetsMessaging {
 	onDidReceiveMessage: VSCodeEvent<IIPyWidgetsMessage>;
-	postMessage(message: IIPyWidgetsMessage | IAppendStylesheetMessage): void;
+	postMessage(message: IIPyWidgetsMessage): void;
 }

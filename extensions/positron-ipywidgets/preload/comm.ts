@@ -4,24 +4,31 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as base from '@jupyter-widgets/base';
-import { IIOPubMessage, IOPubMessageType } from '@jupyterlab/services/lib/kernel/messages';
 import { JSONObject, JSONValue, UUID } from '@lumino/coreutils';
-import type { IIPyWidgetsMessaging, IRuntimeCommMessage } from '../../../src/vs/workbench/contrib/positronIPyWidgets/browser/types.d.ts';
+import { Disposable } from 'vscode-notebook-renderer/events';
+import type { IIPyWidgetsMessaging, ICommMessage } from '../../../src/vs/workbench/contrib/positronIPyWidgets/browser/positronIPyWidgetsMessaging.js';
 
 /**
- * An IClassicComm that sends/receives messages the notebook  Positron runtime session.
+ * An IClassicComm that interfaces with the main thread Positron IPyWidgets service.
  */
-export class Comm implements base.IClassicComm {
+export class Comm implements base.IClassicComm, Disposable {
+	private _disposables: Disposable[] = [];
 	private _on_msg: ((x: any) => void) | undefined;
 	private _on_close: ((x: any) => void) | undefined;
 	private _callbacks = new Map<string, base.ICallbacks>();
 
+	/**
+	 * @param comm_id The ID of the comm.
+	 * @param target_name The target name of the comm.
+	 * @param messaging The messaging interface used to communicate with the main thread.
+	 */
 	constructor(
 		readonly comm_id: string,
 		readonly target_name: string,
 		private readonly messaging: IIPyWidgetsMessaging,
 	) {
-		messaging.onDidReceiveMessage(message => {
+		// Handle messages from the runtime.
+		this._disposables.push(messaging.onDidReceiveMessage(message => {
 			switch (message.type) {
 				case 'comm_msg':
 					this.handle_msg(message);
@@ -30,29 +37,76 @@ export class Comm implements base.IClassicComm {
 					this.handle_close(message);
 					break;
 			}
-		});
-
+		}));
 	}
 
-	open(_data: JSONValue, _callbacks?: base.ICallbacks | undefined, _metadata?: JSONObject | undefined, _buffers?: ArrayBuffer[] | ArrayBufferView[] | undefined): string {
+	/**
+	 * Open a sibling comm in the runtime.
+	 */
+	open(
+		_data: JSONValue,
+		_callbacks?: base.ICallbacks,
+		_metadata?: JSONObject,
+		_buffers?: ArrayBuffer[] | ArrayBufferView[]
+	): string {
 		throw new Error('Method not implemented.');
 	}
 
-	send(data: any, callbacks?: base.ICallbacks | undefined, metadata?: JSONObject | undefined, buffers?: ArrayBuffer[] | ArrayBufferView[] | undefined): string {
+	/**
+	 * Send a message to the sibling comm in the runtime.
+	 *
+	 * @param data The data to send.
+	 * @param callbacks Callbacks to handle the response.
+	 * @param metadata Metadata to send with the message - not currently used.
+	 * @param buffers Buffers to send with the message - not currently used.
+	 * @returns The message ID.
+	 */
+	send(
+		data: any,
+		callbacks?: base.ICallbacks,
+		metadata?: JSONObject,
+		buffers?: ArrayBuffer[] | ArrayBufferView[]
+	): string {
+
+		// Callbacks are used to handle responses from the runtime.
+		// We currently only support the iopub.status callback since it's needed by widget libraries.
+		// (The iopub.status callback is called in the handle_msg method.)
+		// An error will be thrown if any other callback is received.
+
+		if (callbacks?.shell?.reply) {
+			throw new Error('Callback shell.reply not implemented');
+		}
+
+		if (callbacks?.input) {
+			throw new Error('Callback input not implemented');
+		}
+
+		if (callbacks?.iopub?.clear_output) {
+			throw new Error('Callback iopub.clear_output not implemented');
+		}
+
+		if (callbacks?.iopub?.output) {
+			throw new Error('Callback iopub.output not implemented');
+		}
+
 		const msgId = UUID.uuid4();
+
+		if (callbacks?.iopub?.status) {
+			if (this._callbacks.has(msgId)) {
+				throw new Error(`Callbacks already set for message id ${msgId}`);
+			}
+			this._callbacks.set(msgId, { iopub: { status: callbacks.iopub.status } });
+		}
+
 		console.log('Comm.send', data, callbacks, metadata, buffers, msgId);
-		// This seems to be the only requirement so far:
-		// 1. Call callbacks.iopub.status with a msg = { content: { execution_state: string } } when
-		//   the 'idle' message is received.
-		// Raise on unhandled callbacks?
-		this.set_callbacks(msgId, callbacks);
-		// This should return a string msgId. If this initiated an RPC call, the response should contain parent_header.msg_id with the same value.
+
 		this.messaging.postMessage({
 			type: 'comm_msg',
 			comm_id: this.comm_id,
 			msg_id: msgId,
 			content: data,
 		});
+
 		return msgId;
 	}
 
@@ -63,89 +117,80 @@ export class Comm implements base.IClassicComm {
 		}
 		this.messaging.postMessage({
 			type: 'comm_close',
-			content: {
-				comm_id: this.comm_id,
-			}
+			comm_id: this.comm_id,
 		});
 		return '';
 	}
 
+	/**
+	 * Register a message handler.
+	 *
+	 * @param callback Callback, which is given a message.
+	 */
 	on_msg(callback: (x: any) => void): void {
 		console.log('Comm.on_msg', callback);
 		this._on_msg = callback;
 	}
 
+	/**
+	 * Register a handler for when the comm is closed by the backend.
+	 *
+	 * @param callback Callback, which is given a message.
+	 */
 	on_close(callback: (x: any) => void): void {
 		console.log('Comm.on_close', callback);
 		this._on_close = callback;
 	}
 
-	set_callbacks(msgId: string, callbacks: base.ICallbacks | undefined): void {
-		// TODO: How are we supposed to handle multiple calls to set_callbacks?
-
-		// if (this._callbacks !== undefined) {
-		// 	throw new Error('Callbacks already set');
-		// }
-
-		// List of all possible callbacks supported by the shim:
-		//
-		// callbacks.shell.reply
-		// callbacks.input
-		// callbacks.iopub.status
-		//  assumes msg.header.msg_type === 'status'
-		// callbacks.iopub.clear_output
-		//  assumes msg.header.msg_type === 'clear_output'
-		// callbacks.iopub.output
-		//  assumes msg.header.msg_type in ['display_data', 'execute_result', 'stream', 'error']
-		//
-		// But so far I've only seen callbacks.iopub.status being used by widgets.
-
-		if (callbacks?.shell?.reply) {
-			throw new Error('Unimplemented callbacks.shell.reply');
-		}
-		if (callbacks?.input) {
-			throw new Error('Unimplemented callbacks.input');
-		}
-		if (callbacks?.iopub?.clear_output) {
-			throw new Error('Unimplemented callbacks.iopub.clear_output');
-		}
-		if (callbacks?.iopub?.output) {
-			throw new Error('Unimplemented callbacks.iopub.output');
-		}
-		if (callbacks?.iopub?.status) {
-			if (this._callbacks.has(msgId)) {
-				throw new Error(`Callbacks already set for message id ${msgId}`);
-			}
-			this._callbacks.set(msgId, { iopub: { status: callbacks.iopub.status } });
-		}
-	}
-
-	// TODO: Use any type?
-	handle_msg(message: IRuntimeCommMessage): void {
+	/**
+	 * Handle a message from the runtime.
+	 *
+	 * @param message The message.
+	 */
+	private handle_msg(message: ICommMessage): void {
 		console.log('Comm.handle_msg', message);
 		this._on_msg?.(message);
 
-		// TODO: Maybe this needs to happen on the next tick so that the callbacks are done? Try remove this
-		// TODO: Is this correct? Simulate an 'idle' message so that callers know the RPC call is done.
-		//  I think it's safe since we know that this method is only called at the end of an RPC call,
-		//  which I _think_ happens on idle?
-		// setTimeout(() => {
-		// TODO: Currently this also fires when the kernel initiates the update...
-		//  In that case, I'm not sure if the iopub.status callback set earlier should fire.
-		const msgId = (message as any)?.parent_header?.msg_id as string;
+		// Simulate an 'idle' status message after an RPC response is received from the runtime.
+		const msgId = message.msg_id;
 		if (msgId) {
-			// It's an RPC response, call callbacks.
+			// It's an RPC response, call the callbacks.
 			const callbacks = this._callbacks.get(msgId);
 			if (callbacks) {
-				const statusMessage = { content: { execution_state: 'idle' } } as IIOPubMessage<IOPubMessageType>;
-				callbacks.iopub?.status?.(statusMessage);
+				// Call the iopub.status callback with a stubbed 'idle' status message.
+				callbacks.iopub?.status?.({
+					content: { execution_state: 'idle' },
+					// Stub the rest of the interface - these are not currently used by widget libraries.
+					channel: 'iopub',
+					header: {
+						date: '',
+						msg_id: msgId,
+						msg_type: 'status',
+						session: '',
+						username: '',
+						version: '',
+					},
+					parent_header: {},
+					metadata: {},
+				});
 			}
 		}
-		// }, 0);
 	}
 
-	handle_close(message: any): void {
+	/**
+	 * Handle a close message from the runtime.
+	 *
+	 * @param message The close message.
+	 */
+	private handle_close(message: any): void {
 		console.log('Comm.handle_close', message);
 		this._on_close?.(message);
+	}
+
+	dispose(): void {
+		for (const disposable of this._disposables) {
+			disposable.dispose();
+		}
+		this._disposables = [];
 	}
 }

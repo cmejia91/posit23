@@ -16,7 +16,7 @@ import { isEqual } from 'vs/base/common/resources';
 import { ILogService } from 'vs/platform/log/common/log';
 import { asWebviewUri } from 'vs/workbench/contrib/webview/common/webview';
 import { IExtensionService } from 'vs/workbench/services/extensions/common/extensions';
-import { IIPyWidgetsMessage, IIPyWidgetsMessaging } from './types';
+import { IIPyWidgetsMessage, IIPyWidgetsMessaging } from './positronIPyWidgetsMessaging';
 import { RuntimeClientState } from 'vs/workbench/services/languageRuntime/common/languageRuntimeClientInstance';
 
 /**
@@ -190,12 +190,13 @@ class IPyWidgetsClientInstance extends Disposable {
 			}
 			switch (message.type) {
 				case 'comm_msg': {
-					// TODO: Must be a better way to distinguish RPCs from fire-and-forget messages
-					// TODO: Type assertion needed?
-					if (['request_states', 'update'].includes(message.content.method!)) {
-						// TODO: Type assertion needed?
-						await this.performRpc(message.content, 5000, message.msg_id!);
+					if ('method' in message.content &&
+						message.content.method === 'update' &&
+						message.msg_id) {
+						// It's a known RPC request, perform the RPC.
+						await this.performRpc(message.content, 5000, message.msg_id);
 					} else {
+						// Send a fire-and-forget message to the client.
 						this._client.sendMessage(message);
 					}
 					break;
@@ -249,18 +250,16 @@ class IPyWidgetsClientInstance extends Disposable {
 	}
 
 	private async performRpc(request: any, timeout: number, msgId: string): Promise<void> {
-		// TODO: Maybe performRpc should allow us to pass a msgId?
-		//       Or maybe we can use our own msgIds in this layer?
 		// Perform the RPC with the client.
-		const output = await this._client.performRpc(request, timeout);
+		const reply = await this._client.performRpc(request, timeout);
 
 		// Forward the output to the notebook editor.
-		this._logService.debug('RECV comm_msg:', output);
+		this._logService.debug('RECV comm_msg:', reply);
 		this._messaging.postMessage({
 			type: 'comm_msg',
 			comm_id: this._client.getClientId(),
-			parent_header: { msg_id: msgId },
-			content: { data: output }
+			content: { data: reply },
+			msg_id: msgId,
 		});
 	}
 }

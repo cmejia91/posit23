@@ -15,6 +15,6 @@
 	},
 	"include": [
 		"*",
-		"../../../src/vs/workbench/contrib/positronIPyWidgets/browser/types.d.ts"
+		"../../../src/vs/workbench/contrib/positronIPyWidgets/browser/positronIPyWidgetsMessaging.ts"
 	]
 }
