@@ -16,12 +16,12 @@ import { WidgetPlotClient } from 'vs/workbench/contrib/positronPlots/browser/wid
 import { INotebookEditorService } from 'vs/workbench/contrib/notebook/browser/services/notebookEditorService';
 import { INotebookEditor } from 'vs/workbench/contrib/notebook/browser/notebookBrowser';
 import { isEqual } from 'vs/base/common/resources';
-import { RuntimeClientState } from 'vs/workbench/services/languageRuntime/common/languageRuntimeClientInstance';
 import { ILogService } from 'vs/platform/log/common/log';
 import { asWebviewUri } from 'vs/workbench/contrib/webview/common/webview';
 import { IExtensionService } from 'vs/workbench/services/extensions/common/extensions';
 import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
 import { IRuntimeCommMessage, IWidgetCommMessage } from './types';
+import { RuntimeClientState } from 'vs/workbench/services/languageRuntime/common/languageRuntimeClientInstance';
 
 export interface IPositronIPyWidgetCommOpenData {
 	state: {
@@ -253,7 +253,7 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 
 class PositronIPyWidgetsInstance extends Disposable {
 
-	private readonly _clients = new Map<string, IRuntimeClientInstance<any, any>>();
+	private readonly _clients = new Map<string, WidgetClientInstance>();
 
 	/**
 	 * Constructor.
@@ -300,7 +300,10 @@ class PositronIPyWidgetsInstance extends Disposable {
 				});
 
 				// TODO: Can there be a race condition here somehow?
-				this.attachClient(event.client);
+				// TODO: Maybe we should move this above the postMessage.
+				const instance = new WidgetClientInstance(event.client, this._editor);
+				// TODO: Can we use event.client.getClientId() inst
+				this._clients.set(event.client.getClientId(), instance);
 			}
 		}));
 
@@ -319,60 +322,32 @@ class PositronIPyWidgetsInstance extends Disposable {
 	private attachClient(client: IRuntimeClientInstance<any, any>) {
 		const comm_id = client.getClientId();
 
-		client.onDidReceiveData(data => {
-			// Handle an update from the runtime
-			console.log('RECV comm_msg:', data);
-
-			if (data?.method === 'update') {
-				const message: IRuntimeCommMessage = { type: 'comm_msg', comm_id, content: { data } };
-				this._editor.postMessage(message);
-			} else {
-				console.error(`Unhandled message for comm ${comm_id}: ${JSON.stringify(data)}`);
-			}
-		});
-
-		const stateChangeEvent = Event.fromObservable(client.clientState);
-		// TODO: Dispose!
-		stateChangeEvent(state => {
-			console.log('client.clientState changed:', state);
-			if (state === RuntimeClientState.Closed && this._clients.has(comm_id)) {
-				this._clients.delete(comm_id);
-				this._editor.postMessage({ type: 'comm_close', comm_id });
-			}
-		});
+		const widgetClient = new WidgetClientInstance(client, this._editor);
 
 		// TODO: This is writing the comm_id passed from the preload script, not the actual comm_id
 		//       that the session knows about...
 
-		this._clients.set(comm_id, client);
+		this._clients.set(comm_id, widgetClient);
 	}
 
 	private async handleCommMsg(message: IWidgetCommMessage) {
-		const { comm_id, msg_id } = message;
 		const content = message.content;
-		console.log('SEND comm_msg:', comm_id, content);
-		const client = this._clients.get(comm_id);
+		console.log('SEND comm_msg:', message.comm_id, content);
+		const client = this._clients.get(message.comm_id);
 		if (!client) {
-			throw new Error(`Client not found for comm_id: ${comm_id}`);
+			throw new Error(`Client not found for comm_id: ${message.comm_id}`);
 		}
 		// TODO: Maybe it's better to separate these in the preload? Is that possible?
 		if (['request_states', 'update'].includes(content?.method)) {
 			const output = await client.performRpc(content, 5000);
-			// TODO: Do we need the buffers attribute too (not buffer_paths)?
 			console.log('RECV comm_msg:', output);
 			const reply: IRuntimeCommMessage = {
 				type: 'comm_msg',
-				comm_id,
-				parent_header: { msg_id },
+				comm_id: message.comm_id,
+				parent_header: { msg_id: message.msg_id },
 				content: { data: output }
 			};
 			this._editor.postMessage(reply);
-			// TODO: Is this correct? Simulate a idle state here so ipywidgets knows that the RPC call is done
-			// webview.postMessage({ type: 'state', state: 'idle' });
-			// } else {
-			// 	// TODO: Why doesn't performRpc work for this?
-			// 	client.sendMessage(message);
-			// }
 		} else {
 			client.sendMessage(content);
 		}
@@ -380,24 +355,115 @@ class PositronIPyWidgetsInstance extends Disposable {
 
 }
 
-// class WidgetClientInstance extends Disposable {
-// 	constructor(
-// 		client: IRuntimeClientInstance<any, any>,
-// 	) {
+class WidgetClientInstance extends Disposable {
+	private readonly comm: PositronWidgetComm;
 
-// 	}
-// }
+	constructor(
+		private readonly client: IRuntimeClientInstance<any, any>,
+		private readonly editor: INotebookEditor,
+	) {
+		super();
 
-// interface UpdateEvent {
-// }
+		this.comm = new PositronWidgetComm(client);
 
-// class PositronIPyWidgetComm extends PositronBaseComm {
-// 	constructor(
-// 		instance: IRuntimeClientInstance<any, any>,
-// 	) {
-// 		super(instance);
-// 		this.onDidUpdate = super.createEventEmitter('update', []);
-// 	}
+		this._register(this.comm.onDidUpdate((event) => {
+			console.log('PositronWidgetComm.onDidUpdate:', event);
+			// TODO: Continue here. Uncomment below and comment out the onDidReceiveData further down.
+			//       Continue refactoring stuff to this class and the PositronWidgetComm class.
+			//       Then remove what we don't need from the previous ipywidgets implementation.
+			// this.editor.postMessage({
+			// 	type: 'comm_msg',
+			// 	comm_id: this.client.getClientId(),
+			// 	content: { data: event }
+			// } as IRuntimeCommMessage);
+		}));
 
-// 	onDidUpdate: Event<UpdateEvent>;
-// }
+		this._register(this.comm.onDidClose(() => {
+			console.log('PositronWidgetComm.onDidClose');
+		}));
+
+		// Forward client messages to the editor.
+		client.onDidReceiveData(data => {
+			console.log('RECV comm_msg:', data);
+
+			if (data?.method === 'update') {
+				const message: IRuntimeCommMessage = {
+					type: 'comm_msg',
+					comm_id: this.client.getClientId(),
+					content: { data }
+				};
+				this.editor.postMessage(message);
+			} else {
+				console.error(`Unhandled message for comm ${this.client.getClientId()}: ${JSON.stringify(data)}`);
+			}
+		});
+
+		// const stateChangeEvent = Event.fromObservable(client.clientState);
+		// // TODO: Dispose!
+		// stateChangeEvent(state => {
+		// 	console.log('client.clientState changed:', state);
+		// 	if (state === RuntimeClientState.Closed && this._clients.has(comm_id)) {
+		// 		this._clients.delete(comm_id);
+		// 		this.editor.postMessage({ type: 'comm_close', comm_id });
+		// 	}
+		// });
+
+	}
+
+	// TODO: Better abstraction
+	async performRpc(content: any, timeout: number): Promise<any> {
+		return this.client.performRpc(content, timeout);
+	}
+
+	sendMessage(content: any) {
+		this.client.sendMessage(content);
+	}
+}
+
+interface UpdateEvent {
+	method: 'update';
+	// TODO: Need buffer_paths?
+	buffer_paths: string[];
+	state: any;
+}
+
+// TODO: I'm not sure if we need this class... Maybe we only use it in other services
+//       since its code generated.
+class PositronWidgetComm extends Disposable {
+	private readonly _closeEmitter = new Emitter<void>();
+	private readonly _updateEmitter = new Emitter<UpdateEvent>();
+
+	onDidClose = this._closeEmitter.event;
+	onDidUpdate = this._updateEmitter.event;
+
+	constructor(
+		private readonly instance: IRuntimeClientInstance<any, any>,
+	) {
+		super();
+		this._register(instance);
+		this._register(instance.onDidReceiveData((data) => {
+			if (data?.method === 'update') {
+				this._updateEmitter.fire(data);
+			} else {
+				console.error(`Unhandled message for comm ${this.instance.getClientId()}: ${JSON.stringify(data)}`);
+			}
+		}));
+
+		const stateChangeEvent = Event.fromObservable(instance.clientState);
+		this._register(stateChangeEvent(state => {
+			// If the client is closed, emit the close event.
+			if (state === RuntimeClientState.Closed) {
+				this._closeEmitter.fire();
+			}
+		}));
+
+		this.onDidClose = this._closeEmitter.event;
+	}
+
+	/**
+	 * Provides access to the ID of the client instance.
+	 */
+	get clientId(): string {
+		return this.instance.getClientId();
+	}
+}
