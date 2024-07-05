@@ -5,13 +5,11 @@
 // TODO: Should we move this to workbench/services/positronIPyWidgets/browser/positronIPyWidgetsService.ts?
 
 import { Disposable, DisposableStore } from 'vs/base/common/lifecycle';
-import { ILanguageRuntimeMessageOutput, LanguageRuntimeSessionMode, PositronOutputLocation, RuntimeOutputKind } from 'vs/workbench/services/languageRuntime/common/languageRuntimeService';
+import { LanguageRuntimeSessionMode } from 'vs/workbench/services/languageRuntime/common/languageRuntimeService';
 import { ILanguageRuntimeSession, IRuntimeClientInstance, IRuntimeSessionService, RuntimeClientType } from 'vs/workbench/services/runtimeSession/common/runtimeSessionService';
 import { Emitter, Event } from 'vs/base/common/event';
-import { generateUuid } from 'vs/base/common/uuid';
-import { IPositronIPyWidgetsService, IPositronIPyWidgetMetadata, IPyWidgetHtmlData } from 'vs/workbench/services/positronIPyWidgets/common/positronIPyWidgetsService';
-import { IPyWidgetClientInstance, DisplayWidgetEvent } from 'vs/workbench/services/languageRuntime/common/languageRuntimeIPyWidgetClient';
-import { IPositronNotebookOutputWebviewService } from 'vs/workbench/contrib/positronOutputWebview/browser/notebookOutputWebviewService';
+import { IPositronIPyWidgetsService } from 'vs/workbench/services/positronIPyWidgets/common/positronIPyWidgetsService';
+import { IPyWidgetClientInstance } from 'vs/workbench/services/languageRuntime/common/languageRuntimeIPyWidgetClient';
 import { WidgetPlotClient } from 'vs/workbench/contrib/positronPlots/browser/widgetPlotClient';
 import { INotebookEditorService } from 'vs/workbench/contrib/notebook/browser/services/notebookEditorService';
 import { INotebookEditor } from 'vs/workbench/contrib/notebook/browser/notebookBrowser';
@@ -23,21 +21,6 @@ import { IInstantiationService } from 'vs/platform/instantiation/common/instanti
 import { IRuntimeCommMessage, IWidgetCommMessage } from './types';
 import { RuntimeClientState } from 'vs/workbench/services/languageRuntime/common/languageRuntimeClientInstance';
 
-export interface IPositronIPyWidgetCommOpenData {
-	state: {
-		// required widget properties
-		_model_module: string;
-		_model_module_version: string;
-		_model_name: string;
-		_view_module: string;
-		_view_module_version: string;
-		_view_name: string;
-		_view_count: number;
-		// additional properties depending on the widget
-		[key: string]: any;
-	};
-	buffer_paths: string[];
-}
 export class PositronIPyWidgetsService extends Disposable implements IPositronIPyWidgetsService {
 	/** Needed for service branding in dependency injector. */
 	declare readonly _serviceBrand: undefined;
@@ -45,7 +28,7 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 	/** The list of IPyWidgets. */
 	private readonly _widgets = new Map<string, IPyWidgetClientInstance>();
 
-	private readonly _positronIPyWidgetsInstancesBySessionId = new Map<string, PositronIPyWidgetsInstance>();
+	private readonly _iPyWidgetsInstancesBySessionId = new Map<string, IPyWidgetsInstance>();
 
 	/** The emitter for the onDidCreatePlot event */
 	private readonly _onDidCreatePlot = new Emitter<WidgetPlotClient>();
@@ -53,112 +36,46 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 	/** Creates the Positron plots service instance */
 	constructor(
 		@IRuntimeSessionService private _runtimeSessionService: IRuntimeSessionService,
-		@IPositronNotebookOutputWebviewService private _notebookOutputWebviewService: IPositronNotebookOutputWebviewService,
 		@INotebookEditorService private _notebookEditorService: INotebookEditorService,
 		@ILogService private _logService: ILogService,
 		@IInstantiationService private _instantiationService: IInstantiationService,
 	) {
 		super();
 
+		this._runtimeSessionService.activeSessions.forEach(session => {
+			this.attachRuntime(session);
+		});
+
 		// Register for language runtime service startups
+		// TODO: Should we listen to onWillStartSession instead?
 		this._register(this._runtimeSessionService.onDidStartRuntime((session) => {
 			this.attachRuntime(session);
 		}));
 	}
 
-	private registerIPyWidgetClient(widgetClient: IPyWidgetClientInstance,
-		runtime: ILanguageRuntimeSession) {
-		// Add to our list of widgets
-		this._widgets.set(widgetClient.id, widgetClient);
-
-		// Raise the plot if it's updated by the runtime
-		widgetClient.onDidEmitDisplay((event) => {
-			this.handleDisplayEvent(event, runtime);
-		});
-
-		// Listen for the widget client to be disposed (i.e. by the plots service via the
-		// widgetPlotClient) and make sure to remove it fully from the widget service
-		widgetClient.onDidDispose(() => {
-			this._widgets.delete(widgetClient.id);
-		});
-
-		this._register(widgetClient);
-	}
-
-	private attachRuntime(runtime: ILanguageRuntimeSession) {
-		// Get the list of existing widget clients; these are expected in the
-		// case of reconnecting to a running language runtime
-		runtime.listClients(RuntimeClientType.IPyWidget).then(clients => {
-			const widgetClients: Array<IPyWidgetClientInstance> = [];
-			clients.forEach((client) => {
-				if (client.getClientType() === RuntimeClientType.IPyWidget) {
-					if (this.hasWidget(runtime.runtimeMetadata.runtimeId, client.getClientId())) {
-						return;
-					}
-				} else {
-					console.warn(
-						`Unexpected client type ${client.getClientType()} ` +
-						`(expected ${RuntimeClientType.IPyWidget})`);
-				}
-			});
-
-			widgetClients.forEach((client) => {
-				this.registerIPyWidgetClient(client, runtime);
-			});
-		});
-
-		this._register(runtime.onDidCreateClientInstance((event) => {
-			if (event.client.getClientType() === RuntimeClientType.IPyWidget) {
-				const clientId = event.client.getClientId();
-
-				// Check to see if we we already have a widget client for this
-				// client ID. If so, we don't need to do anything.
-				if (this.hasWidget(runtime.runtimeMetadata.runtimeId, clientId)) {
-					return;
-				}
-
-				const data = event.message.data as IPositronIPyWidgetCommOpenData;
-
-				// Create the metadata object
-				const metadata: IPositronIPyWidgetMetadata = {
-					id: clientId,
-					runtime_id: runtime.runtimeMetadata.runtimeId,
-					widget_state: {
-						model_name: data.state._model_name,
-						model_module: data.state._model_module,
-						model_module_version: data.state._model_module_version,
-						state: data.state
-					}
-				};
-
-				// Register the widget client and update the list of primary widgets
-				const widgetClient = new IPyWidgetClientInstance(event.client, metadata);
-				this.registerIPyWidgetClient(widgetClient, runtime);
-			}
-		}));
-
-		// If this is a notebook session, try to create a new PositronIPyWidgetsInstance.
-		if (runtime.metadata.sessionMode === LanguageRuntimeSessionMode.Notebook) {
-			// Find the notebook editor for this session.
-			const notebookEditor = this._notebookEditorService.listNotebookEditors().find(
-				(editor) => isEqual(runtime.metadata.notebookUri, editor.textModel?.uri));
-
-			if (!notebookEditor) {
-				this._logService.error(`Could not find a notebook editor for session '${runtime.metadata.sessionId}'`);
-			} else {
-				// If we found a matching notebook editor, start a PositronIPyWidgetsInstance.
-				this._logService.debug(`Found an existing notebook editor for session '${runtime.metadata.sessionId}, starting ipywidgets instance`);
-				this.startPositronIPyWidgetsInstance(runtime, notebookEditor);
-			}
+	private attachRuntime(session: ILanguageRuntimeSession) {
+		// We currently only handle notebook sessions.
+		// TODO: Support console sessions too.
+		if (session.metadata.sessionMode !== LanguageRuntimeSessionMode.Notebook) {
+			return;
 		}
-	}
 
-	private startPositronIPyWidgetsInstance(session: ILanguageRuntimeSession, notebookEditor: INotebookEditor) {
-		const positronIPyWidgetsInstance = this._instantiationService.createInstance(
-			PositronIPyWidgetsInstance,
+		// Find the session's notebook editor by its notebook URI.
+		const notebookEditor = this._notebookEditorService.listNotebookEditors().find(
+			(editor) => isEqual(session.metadata.notebookUri, editor.textModel?.uri));
+
+		if (!notebookEditor) {
+			this._logService.error(`Could not find a notebook editor for session '${session.sessionId}'`);
+			return;
+		}
+
+		// We found a matching notebook editor, start a PositronIPyWidgetsInstance.
+		this._logService.debug(`Found an existing notebook editor for session '${session.sessionId}, starting ipywidgets instance`);
+		const iPyWidgetsInstance = this._instantiationService.createInstance(
+			IPyWidgetsInstance,
 			session,
 			notebookEditor);
-		this._positronIPyWidgetsInstancesBySessionId.set(session.metadata.sessionId, positronIPyWidgetsInstance);
+		this._iPyWidgetsInstancesBySessionId.set(session.sessionId, iPyWidgetsInstance);
 
 		const disposableStore = new DisposableStore();
 
@@ -166,9 +83,9 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 		// Dispose the instance when the model changes.
 		disposableStore.add(notebookEditor.onDidChangeModel((e) => {
 			if (!isEqual(session.metadata.notebookUri, e?.uri)) {
-				this._logService.debug(`Editor model changed for session '${session.metadata.sessionId}, disposing ipywidgets instance`);
-				this._positronIPyWidgetsInstancesBySessionId.delete(session.metadata.sessionId);
-				positronIPyWidgetsInstance.dispose();
+				this._logService.debug(`Editor model changed for session '${session.sessionId}, disposing ipywidgets instance`);
+				this._iPyWidgetsInstancesBySessionId.delete(session.sessionId);
+				iPyWidgetsInstance.dispose();
 				disposableStore.dispose();
 			}
 		}));
@@ -176,65 +93,12 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 		// Clean up when the notebook editor is removed.
 		disposableStore.add(this._notebookEditorService.onDidRemoveNotebookEditor((e) => {
 			if (e === notebookEditor) {
-				this._logService.debug(`Notebook editor removed for session '${session.metadata.sessionId}, disposing ipywidgets instance`);
-				this._positronIPyWidgetsInstancesBySessionId.delete(session.metadata.sessionId);
-				positronIPyWidgetsInstance.dispose();
+				this._logService.debug(`Notebook editor removed for session '${session.sessionId}, disposing ipywidgets instance`);
+				this._iPyWidgetsInstancesBySessionId.delete(session.sessionId);
+				iPyWidgetsInstance.dispose();
 				disposableStore.dispose();
 			}
 		}));
-	}
-
-	private async handleDisplayEvent(event: DisplayWidgetEvent, runtime: ILanguageRuntimeSession) {
-		const primaryWidgets = event.view_ids;
-
-		// Combine our existing list of widgets into a single WidgetPlotClient
-		const htmlData = new IPyWidgetHtmlData(this.positronWidgetInstances);
-
-		primaryWidgets.forEach(widgetId => {
-			htmlData.addWidgetView(widgetId);
-		});
-
-		// None of these required fields get used except for data, so we generate a random id and
-		// provide reasonable placeholders for the rest
-		const widgetMessage = {
-			id: generateUuid(),
-			type: 'output',
-			event_clock: 0,
-			parent_id: '',
-			when: new Date().toISOString(),
-			output_location: PositronOutputLocation.Plot,
-			kind: RuntimeOutputKind.IPyWidget,
-			data: htmlData.data,
-			metadata: {},
-		} as ILanguageRuntimeMessageOutput;
-
-		const webview = await this._notebookOutputWebviewService.createNotebookOutputWebview(
-			runtime, widgetMessage);
-		if (webview) {
-			const widgetViewIds = Array.from(primaryWidgets);
-			const managedWidgets = widgetViewIds.flatMap((widgetId: string) => {
-				const widget = this._widgets.get(widgetId)!;
-				const dependentWidgets = widget.dependencies.map((dependentWidgetId: string) => {
-					return this._widgets.get(dependentWidgetId)!;
-				});
-				return [widget, ...dependentWidgets];
-			});
-			const plotClient = new WidgetPlotClient(webview, widgetMessage, managedWidgets);
-			this._onDidCreatePlot.fire(plotClient);
-		}
-	}
-
-	/**
-	 * Checks to see whether the service has a widget with the given ID and runtime ID.
-	 *
-	 * @param runtimeId The runtime ID that generated the widget.
-	 * @param widgetId The widget's unique ID.
-	 */
-	private hasWidget(runtimeId: string, widgetId: string): boolean {
-		return (
-			this._widgets.has(widgetId) &&
-			this._widgets.get(widgetId)!.metadata.runtime_id === runtimeId
-		);
 	}
 
 	onDidCreatePlot: Event<WidgetPlotClient> = this._onDidCreatePlot.event;
@@ -251,7 +115,7 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 	}
 }
 
-class PositronIPyWidgetsInstance extends Disposable {
+class IPyWidgetsInstance extends Disposable {
 
 	private readonly _clients = new Map<string, WidgetClientInstance>();
 
@@ -302,7 +166,6 @@ class PositronIPyWidgetsInstance extends Disposable {
 				// TODO: Can there be a race condition here somehow?
 				// TODO: Maybe we should move this above the postMessage.
 				const instance = new WidgetClientInstance(event.client, this._editor);
-				// TODO: Can we use event.client.getClientId() inst
 				this._clients.set(event.client.getClientId(), instance);
 			}
 		}));
@@ -317,17 +180,6 @@ class PositronIPyWidgetsInstance extends Disposable {
 				}));
 			this._editor.postMessage({ type: 'append_stylesheet', href: styleUri.toString() });
 		});
-	}
-
-	private attachClient(client: IRuntimeClientInstance<any, any>) {
-		const comm_id = client.getClientId();
-
-		const widgetClient = new WidgetClientInstance(client, this._editor);
-
-		// TODO: This is writing the comm_id passed from the preload script, not the actual comm_id
-		//       that the session knows about...
-
-		this._clients.set(comm_id, widgetClient);
 	}
 
 	private async handleCommMsg(message: IWidgetCommMessage) {
