@@ -201,7 +201,7 @@ declare module 'positron' {
 		type: LanguageRuntimeMessageType;
 
 		/** Additional metadata, if any */
-		metadata: Record<string, any>;
+		metadata?: Record<string, any>;
 	}
 
 	/** LanguageRuntimeOutput is a LanguageRuntimeMessage representing output (text, plots, etc.) */

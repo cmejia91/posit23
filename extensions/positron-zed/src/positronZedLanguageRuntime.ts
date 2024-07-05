@@ -1743,7 +1743,7 @@ export class PositronZedRuntimeSession implements positron.LanguageRuntimeSessio
 				type: positron.LanguageRuntimeMessageType.CommClosed,
 				comm_id: target.id,
 				target_name: 'positron.connection',
-				data: { name: target.name }
+				data: { name: target.name },
 			} as positron.LanguageRuntimeCommClosed);
 
 			// Emit text output so something shows up in the console.
@@ -1886,7 +1886,7 @@ export class PositronZedRuntimeSession implements positron.LanguageRuntimeSessio
 			type: positron.LanguageRuntimeMessageType.Input,
 			state: positron.RuntimeOnlineState.Busy,
 			code: code,
-			execution_count: 1
+			execution_count: 1,
 		} as positron.LanguageRuntimeInput);
 
 		// If the preview is open, add it to the preview's recent commands.

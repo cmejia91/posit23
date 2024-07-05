@@ -58,7 +58,7 @@ export interface ILanguageRuntimeMessage {
 	when: string;
 
 	/** Additional metadata, if any */
-	metadata: Record<string, any>;
+	metadata?: Record<string, any>;
 }
 
 /**
