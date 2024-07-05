@@ -1,15 +1,16 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright (C) 2023-2024 Posit Software, PBC. All rights reserved.
+ *  Copyright (C) 2024 Posit Software, PBC. All rights reserved.
  *  Licensed under the Elastic License 2.0. See LICENSE.txt for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Event } from 'vs/base/common/event';
+export interface IAppendStylesheetMessage {
+	type: 'append_stylesheet';
+	href: string;
+}
 
-export interface IWidgetCommMessage {
-	type: 'comm_msg';
-	comm_id: string;
-	msg_id: string;
-	content: any;
+export interface IRuntimeCommClose {
+	type: 'comm_close';
+	content: { comm_id: string };
 }
 
 export interface IRuntimeCommMessage {
@@ -21,11 +22,6 @@ export interface IRuntimeCommMessage {
 	content: { data: any, method?: string };
 }
 
-export interface IAppendStylesheetMessage {
-	type: 'append_stylesheet';
-	href: string;
-}
-
 export interface IRuntimeCommOpen {
 	type: 'comm_open';
 	comm_id: string;
@@ -34,9 +30,22 @@ export interface IRuntimeCommOpen {
 	metadata: any;
 }
 
-export type IIPyWidgetsMessage = IRuntimeCommMessage | IRuntimeCommOpen;
+export type IIPyWidgetsMessage = IAppendStylesheetMessage |
+	IRuntimeCommClose |
+	IRuntimeCommMessage |
+	IRuntimeCommOpen;
+
+export type IRuntimeMessage = IRuntimeCommMessage | IAppendStylesheetMessage;
+
+export interface Disposable {
+	dispose(): void;
+}
+
+export interface VSCodeEvent<T> {
+	(listener: (e: T) => any, thisArgs?: any, disposables?: Disposable[]): Disposable;
+}
 
 export interface IIPyWidgetsMessaging {
-	onDidReceiveMessage: Event<IIPyWidgetsMessage>;
+	onDidReceiveMessage: VSCodeEvent<IIPyWidgetsMessage>;
 	postMessage(message: IIPyWidgetsMessage | IAppendStylesheetMessage): void;
 }

@@ -16,7 +16,7 @@ import { isEqual } from 'vs/base/common/resources';
 import { ILogService } from 'vs/platform/log/common/log';
 import { asWebviewUri } from 'vs/workbench/contrib/webview/common/webview';
 import { IExtensionService } from 'vs/workbench/services/extensions/common/extensions';
-import { IAppendStylesheetMessage, IIPyWidgetsMessage, IIPyWidgetsMessaging } from './types';
+import { IIPyWidgetsMessage, IIPyWidgetsMessaging } from './types';
 import { RuntimeClientState } from 'vs/workbench/services/languageRuntime/common/languageRuntimeClientInstance';
 
 /**
@@ -120,23 +120,23 @@ class IPyWidgetsInstance extends Disposable {
 	private readonly _clients = new Map<string, IPyWidgetsClientInstance>();
 
 	/**
-	 * @param _session The language runtime session.
-	 * @param _editor The notebook editor.
+	 * @param session The language runtime session.
+	 * @param editor The notebook editor.
 	 * @param _extensionService The extension service.
-	 * @param _logService The log service.
+	 * @param logService The log service.
 	 */
 	constructor(
-		_session: ILanguageRuntimeSession,
-		private readonly _editor: INotebookEditor,
+		session: ILanguageRuntimeSession,
+		editor: INotebookEditor,
 		private readonly _extensionService: IExtensionService,
-		_logService: ILogService,
+		logService: ILogService,
 	) {
 		super();
 
-		const messaging = new IPyWidgetsMessaging(_editor);
+		const messaging = new IPyWidgetsMessaging(editor);
 
 		// Handle the creation of new client instances.
-		this._register(_session.onDidCreateClientInstance(({ client, message }) => {
+		this._register(session.onDidCreateClientInstance(({ client, message }) => {
 			if (client.getClientType() !== RuntimeClientType.IPyWidget) {
 				return;
 			}
@@ -144,9 +144,8 @@ class IPyWidgetsInstance extends Disposable {
 			const ipywidgetsClient = new IPyWidgetsClientInstance(
 				message,
 				client,
-				this._editor,
 				messaging,
-				_logService,
+				logService,
 			);
 
 			this._register(ipywidgetsClient.onDidClose(() => {
@@ -178,8 +177,6 @@ class IPyWidgetsClientInstance extends Disposable {
 	constructor(
 		message: ILanguageRuntimeMessageCommOpen,
 		private readonly _client: IRuntimeClientInstance<any, any>,
-		// TODO: Add typed messaging.onDidReceiveMessage event
-		private readonly _editor: INotebookEditor,
 		private readonly _messaging: IPyWidgetsMessaging,
 		private readonly _logService: ILogService,
 	) {
@@ -187,7 +184,8 @@ class IPyWidgetsClientInstance extends Disposable {
 
 		// Forward messages from the notebook editor to the client.
 		this._register(_messaging.onDidReceiveMessage(async (message) => {
-			if (message.comm_id !== this._client.getClientId()) {
+			if (!('comm_id' in message) ||
+				message.comm_id !== this._client.getClientId()) {
 				return;
 			}
 			switch (message.type) {
@@ -204,8 +202,8 @@ class IPyWidgetsClientInstance extends Disposable {
 				}
 				default:
 					this._logService.warn(
-						`Unhandled message from notebook '${this._editor.textModel?.uri}' ` +
-						`for client ${this._client.getClientId()}: ${JSON.stringify(message)}`
+						`Unhandled message from notebook for client ${this._client.getClientId()}: `
+						+ JSON.stringify(message)
 					);
 					break;
 			}
@@ -225,19 +223,16 @@ class IPyWidgetsClientInstance extends Disposable {
 					break;
 				default:
 					this._logService.warn(
-						`Unhandled message from client ${this._client.getClientId()} ` +
-						`for notebook ${this._editor.textModel?.uri}: ${JSON.stringify(data)}`
+						`Unhandled message from client ${this._client.getClientId()} for notebook: `
+						+ JSON.stringify(data)
 					);
 					break;
 			}
 		}));
 
-		/**
-		 * If the client is closed, emit the close event.
-		 */
+		// If the client is closed, emit the close event.
 		const stateChangeEvent = Event.fromObservable(_client.clientState);
 		this._register(stateChangeEvent(state => {
-			// If the client is closed, emit the close event.
 			if (state === RuntimeClientState.Closed) {
 				this._closeEmitter.fire();
 			}
@@ -251,7 +246,6 @@ class IPyWidgetsClientInstance extends Disposable {
 			content: { data: message.data },
 			metadata: message.metadata,
 		});
-
 	}
 
 	private async performRpc(request: any, timeout: number, msgId: string): Promise<void> {
@@ -261,7 +255,7 @@ class IPyWidgetsClientInstance extends Disposable {
 		const output = await this._client.performRpc(request, timeout);
 
 		// Forward the output to the notebook editor.
-		this._logService.info('RECV comm_msg:', output);
+		this._logService.debug('RECV comm_msg:', output);
 		this._messaging.postMessage({
 			type: 'comm_msg',
 			comm_id: this._client.getClientId(),
@@ -271,16 +265,12 @@ class IPyWidgetsClientInstance extends Disposable {
 	}
 }
 
-// TODO: Should this be a "messaging" class with a single typed postMessage method,
-//       or should it have a method per type e.g. appendStylesheet(href: string)?
 class IPyWidgetsMessaging extends Disposable implements IIPyWidgetsMessaging {
 	private readonly _messageEmitter = new Emitter<IIPyWidgetsMessage>();
 
 	onDidReceiveMessage = this._messageEmitter.event;
 
-	constructor(
-		private readonly _editor: INotebookEditor,
-	) {
+	constructor(private readonly _editor: INotebookEditor) {
 		super();
 
 		this._register(_editor.onDidReceiveMessage((event) => {
@@ -288,7 +278,7 @@ class IPyWidgetsMessaging extends Disposable implements IIPyWidgetsMessaging {
 		}));
 	}
 
-	postMessage(message: IIPyWidgetsMessage | IAppendStylesheetMessage) {
+	postMessage(message: IIPyWidgetsMessage) {
 		this._editor.postMessage(message);
 	}
 }

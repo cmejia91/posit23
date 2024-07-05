@@ -10,7 +10,7 @@ import * as output from '@jupyter-widgets/output';
 import { ManagerBase } from '@jupyter-widgets/base-manager';
 // TODO: Do we really need to depend on this?
 import { JSONObject } from '@lumino/coreutils';
-import { VSCodeEvent } from 'vscode-notebook-renderer/events';
+import { Disposable, VSCodeEvent } from 'vscode-notebook-renderer/events';
 import { Comm } from './comm';
 
 import '@fortawesome/fontawesome-free/css/all.min.css';
@@ -18,6 +18,7 @@ import '@fortawesome/fontawesome-free/css/v4-shims.min.css';
 import '@lumino/widgets/style/index.css';
 import '@jupyter-widgets/base/css/index.css';
 import '@jupyter-widgets/controls/css/widgets.css'; // This imports labvariables and widgets-base
+import { IAppendStylesheetMessage, IIPyWidgetsMessage, IIPyWidgetsMessaging } from '../../../src/vs/workbench/contrib/positronIPyWidgets/browser/types';
 
 const CDN = 'https://cdn.jsdelivr.net/npm/';
 
@@ -56,11 +57,11 @@ function moduleNameToCDNUrl(moduleName: string, moduleVersion: string): string {
 
 // TODO: Does everything need to be protected?
 class HTMLManager extends ManagerBase {
-	constructor(private readonly context: KernelPreloadContext) {
+	constructor(private readonly messaging: IIPyWidgetsMessaging) {
 		super();
 
-		// TODO: Validate the message?
-		context.onDidReceiveKernelMessage((message: any) => {
+		messaging.onDidReceiveMessage((message) => {
+			// TODO: Validate the message?
 			// if (
 			// 	typeof event === 'object' &&
 			// 	event &&
@@ -157,10 +158,22 @@ class HTMLManager extends ManagerBase {
 	}
 
 	async onCommOpen(message: ICommOpen) {
-		const comm = new Comm(message.comm_id, message.target_name, this.context);
+		const comm = new Comm(message.comm_id, message.target_name, this.messaging);
 		// TODO: Fix type...
 		await this.handle_comm_open(comm, message as any);
 		console.log('Opened comm:', comm);
+	}
+}
+
+class Messaging implements IIPyWidgetsMessaging {
+	constructor(private readonly _context: KernelPreloadContext) { }
+
+	postMessage(message: IIPyWidgetsMessage | IAppendStylesheetMessage): void {
+		this._context.postKernelMessage(message);
+	}
+
+	onDidReceiveMessage(listener: (e: IIPyWidgetsMessage) => any): Disposable {
+		return this._context.onDidReceiveKernelMessage(listener as any);
 	}
 }
 
@@ -176,8 +189,10 @@ export async function activate(context: KernelPreloadContext): Promise<void> {
 	define('@jupyter-widgets/controls', () => controls);
 	define('@jupyter-widgets/output', () => output);
 
+	const messaging = new Messaging(context);
+
 	// TODO: Should we await this and timeout?
-	context.onDidReceiveKernelMessage((message: any) => {
+	messaging.onDidReceiveMessage(message => {
 		console.log('Kernel received message:', message);
 		if (message.type === 'append_stylesheet') {
 			const link = document.createElement('link');
@@ -187,6 +202,6 @@ export async function activate(context: KernelPreloadContext): Promise<void> {
 		}
 	});
 
-	const manager = new HTMLManager(context);
+	const manager = new HTMLManager(messaging);
 	(window as any).positronIPyWidgetManager = manager;
 }

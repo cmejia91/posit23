@@ -6,8 +6,7 @@
 import * as base from '@jupyter-widgets/base';
 import { IIOPubMessage, IOPubMessageType } from '@jupyterlab/services/lib/kernel/messages';
 import { JSONObject, JSONValue, UUID } from '@lumino/coreutils';
-import { KernelPreloadContext } from '.';
-import type { IRuntimeCommMessage, IWidgetCommMessage } from '../../../src/vs/workbench/contrib/positronIPyWidgets/browser/types.d.ts';
+import type { IIPyWidgetsMessaging, IRuntimeCommMessage } from '../../../src/vs/workbench/contrib/positronIPyWidgets/browser/types.d.ts';
 
 /**
  * An IClassicComm that sends/receives messages the notebook  Positron runtime session.
@@ -20,9 +19,9 @@ export class Comm implements base.IClassicComm {
 	constructor(
 		readonly comm_id: string,
 		readonly target_name: string,
-		private readonly context: KernelPreloadContext,
+		private readonly messaging: IIPyWidgetsMessaging,
 	) {
-		context.onDidReceiveKernelMessage((message: any) => {
+		messaging.onDidReceiveMessage(message => {
 			switch (message.type) {
 				case 'comm_msg':
 					this.handle_msg(message);
@@ -48,13 +47,12 @@ export class Comm implements base.IClassicComm {
 		// Raise on unhandled callbacks?
 		this.set_callbacks(msgId, callbacks);
 		// This should return a string msgId. If this initiated an RPC call, the response should contain parent_header.msg_id with the same value.
-		const message: IWidgetCommMessage = {
+		this.messaging.postMessage({
 			type: 'comm_msg',
 			comm_id: this.comm_id,
 			msg_id: msgId,
 			content: data,
-		};
-		this.context.postKernelMessage(message);
+		});
 		return msgId;
 	}
 
@@ -63,7 +61,7 @@ export class Comm implements base.IClassicComm {
 		if (callbacks) {
 			throw new Error('Callbacks not supported in close');
 		}
-		this.context.postKernelMessage({
+		this.messaging.postMessage({
 			type: 'comm_close',
 			content: {
 				comm_id: this.comm_id,
