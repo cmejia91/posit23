@@ -16,7 +16,7 @@ import { isEqual } from 'vs/base/common/resources';
 import { ILogService } from 'vs/platform/log/common/log';
 import { asWebviewUri } from 'vs/workbench/contrib/webview/common/webview';
 import { IExtensionService } from 'vs/workbench/services/extensions/common/extensions';
-import { IRuntimeCommMessage, IWidgetCommMessage } from './types';
+import { IAppendStylesheetMessage, IIPyWidgetsMessage, IIPyWidgetsMessaging } from './types';
 import { RuntimeClientState } from 'vs/workbench/services/languageRuntime/common/languageRuntimeClientInstance';
 
 /**
@@ -133,6 +133,8 @@ class IPyWidgetsInstance extends Disposable {
 	) {
 		super();
 
+		const messaging = new IPyWidgetsMessaging(_editor);
+
 		// Handle the creation of new client instances.
 		this._register(_session.onDidCreateClientInstance(({ client, message }) => {
 			if (client.getClientType() !== RuntimeClientType.IPyWidget) {
@@ -143,6 +145,7 @@ class IPyWidgetsInstance extends Disposable {
 				message,
 				client,
 				this._editor,
+				messaging,
 				_logService,
 			);
 
@@ -161,7 +164,7 @@ class IPyWidgetsInstance extends Disposable {
 				extension.extensionLocation.with({
 					path: extension.extensionLocation.path + '/preload-out/index.css'
 				}));
-			this._editor.postMessage({ type: 'append_stylesheet', href: styleUri.toString() });
+			messaging.postMessage({ type: 'append_stylesheet', href: styleUri.toString() });
 		});
 	}
 
@@ -175,23 +178,25 @@ class IPyWidgetsClientInstance extends Disposable {
 	constructor(
 		message: ILanguageRuntimeMessageCommOpen,
 		private readonly _client: IRuntimeClientInstance<any, any>,
+		// TODO: Add typed messaging.onDidReceiveMessage event
 		private readonly _editor: INotebookEditor,
+		private readonly _messaging: IPyWidgetsMessaging,
 		private readonly _logService: ILogService,
 	) {
 		super();
 
 		// Forward messages from the notebook editor to the client.
-		this._register(_editor.onDidReceiveMessage(async (event) => {
-			// TODO: Type this...
-			const message = event.message as IWidgetCommMessage;
+		this._register(_messaging.onDidReceiveMessage(async (message) => {
 			if (message.comm_id !== this._client.getClientId()) {
 				return;
 			}
 			switch (message.type) {
 				case 'comm_msg': {
 					// TODO: Must be a better way to distinguish RPCs from fire-and-forget messages
-					if (['request_states', 'update'].includes(message.content.method)) {
-						await this.performRpc(message.content, 5000, message.msg_id);
+					// TODO: Type assertion needed?
+					if (['request_states', 'update'].includes(message.content.method!)) {
+						// TODO: Type assertion needed?
+						await this.performRpc(message.content, 5000, message.msg_id!);
 					} else {
 						this._client.sendMessage(message);
 					}
@@ -212,11 +217,11 @@ class IPyWidgetsClientInstance extends Disposable {
 
 			switch (data.method) {
 				case 'update':
-					this._editor.postMessage({
+					this._messaging.postMessage({
 						type: 'comm_msg',
 						comm_id: this._client.getClientId(),
 						content: { data }
-					} as IRuntimeCommMessage);
+					});
 					break;
 				default:
 					this._logService.warn(
@@ -239,8 +244,7 @@ class IPyWidgetsClientInstance extends Disposable {
 		}));
 
 		// Notify the notebook editor about the new client instance.
-		// TODO: Type this
-		this._editor.postMessage({
+		this._messaging.postMessage({
 			type: 'comm_open',
 			comm_id: this._client.getClientId(),
 			target_name: this._client.getClientType(),
@@ -258,11 +262,33 @@ class IPyWidgetsClientInstance extends Disposable {
 
 		// Forward the output to the notebook editor.
 		this._logService.info('RECV comm_msg:', output);
-		this._editor.postMessage({
+		this._messaging.postMessage({
 			type: 'comm_msg',
 			comm_id: this._client.getClientId(),
 			parent_header: { msg_id: msgId },
 			content: { data: output }
-		} as IRuntimeCommMessage);
+		});
+	}
+}
+
+// TODO: Should this be a "messaging" class with a single typed postMessage method,
+//       or should it have a method per type e.g. appendStylesheet(href: string)?
+class IPyWidgetsMessaging extends Disposable implements IIPyWidgetsMessaging {
+	private readonly _messageEmitter = new Emitter<IIPyWidgetsMessage>();
+
+	onDidReceiveMessage = this._messageEmitter.event;
+
+	constructor(
+		private readonly _editor: INotebookEditor,
+	) {
+		super();
+
+		this._register(_editor.onDidReceiveMessage((event) => {
+			this._messageEmitter.fire(event.message as IIPyWidgetsMessage);
+		}));
+	}
+
+	postMessage(message: IIPyWidgetsMessage | IAppendStylesheetMessage) {
+		this._editor.postMessage(message);
 	}
 }
