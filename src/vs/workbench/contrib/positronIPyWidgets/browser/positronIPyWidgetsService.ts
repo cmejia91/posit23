@@ -15,7 +15,7 @@ import { isEqual } from 'vs/base/common/resources';
 import { ILogService } from 'vs/platform/log/common/log';
 import { asWebviewUri } from 'vs/workbench/contrib/webview/common/webview';
 import { IExtensionService } from 'vs/workbench/services/extensions/common/extensions';
-import { IIPyWidgetsMessage, IIPyWidgetsMessaging } from '../../../services/languageRuntime/common/positronIPyWidgetsMessaging';
+import { ICommOpen, IIPyWidgetsMessage, IIPyWidgetsMessaging as IIPyWidgetsWebviewMessaging, IReady } from '../../../services/languageRuntime/common/positronIPyWidgetsMessaging';
 import { IPositronNotebookOutputWebviewService } from 'vs/workbench/contrib/positronOutputWebview/browser/notebookOutputWebviewService';
 import { WebviewPlotClient } from 'vs/workbench/contrib/positronPlots/browser/webviewPlotClient';
 import { IPyWidgetClientInstance } from 'vs/workbench/services/languageRuntime/common/languageRuntimeIPyWidgetClient';
@@ -68,10 +68,9 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 						session, message);
 					if (webview) {
 						// TODO: Could/should we combine IPyWidgetsMessaging with IPyWidgetsInstance?
-						const messaging = new IPyWidgetsMessaging(webview);
 						const iPyWidgetsInstance = new IPyWidgetsInstance(
 							session,
-							messaging,
+							webview,
 							this._extensionService,
 							this._logService,
 						);
@@ -102,10 +101,9 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 
 			// We found a matching notebook editor, start an ipywidgets instance.
 			this._logService.debug(`Found an existing notebook editor for session '${session.sessionId}, starting ipywidgets instance`);
-			const messaging = new IPyWidgetsMessaging(notebookEditor);
 			const iPyWidgetsInstance = new IPyWidgetsInstance(
 				session,
-				messaging,
+				notebookEditor,
 				this._extensionService,
 				this._logService,
 			);
@@ -153,36 +151,41 @@ class IPyWidgetsInstance extends Disposable {
 
 	private readonly _clients = new Map<string, IPyWidgetClientInstance>();
 
+	private readonly _messaging: IIPyWidgetsWebviewMessaging;
+
 	/**
 	 * @param session The language runtime session.
 	 * @param editor The notebook editor.
 	 * @param _extensionService The extension service.
-	 * @param logService The log service.
+	 * @param _logService The log service.
 	 */
 	constructor(
-		session: ILanguageRuntimeSession,
-		messaging: IPyWidgetsMessaging,
+		private readonly _session: ILanguageRuntimeSession,
+		notebookMessaging: INotebookWebviewMessaging,
 		private readonly _extensionService: IExtensionService,
-		logService: ILogService,
+		private readonly _logService: ILogService,
 	) {
 		super();
 
+		// Create the typed webview messaging interface.
+		this._messaging = new IPyWidgetsWebviewMessaging(notebookMessaging);
+
 		// Configure existing widget clients.
-		session.listClients(RuntimeClientType.IPyWidget).then((clients) => {
+		_session.listClients(RuntimeClientType.IPyWidget).then((clients) => {
 			for (const client of clients) {
-				this.createClient(client, messaging, logService);
+				this.createClient(client);
 			}
 		});
 
 		// Forward comm_open messages from the runtime to the notebook editor.
-		this._register(session.onDidCreateClientInstance(({ client, message }) => {
+		this._register(_session.onDidCreateClientInstance(({ client, message }) => {
 			if (client.getClientType() === RuntimeClientType.IPyWidget ||
 				client.getClientType() === RuntimeClientType.IPyWidgetControl) {
 
-				this.createClient(client, messaging, logService);
+				this.createClient(client);
 
 				// Notify the notebook editor about the new client instance.
-				messaging.postMessage({
+				this._messaging.postMessage({
 					type: 'comm_open',
 					comm_id: client.getClientId(),
 					target_name: client.getClientType(),
@@ -193,39 +196,20 @@ class IPyWidgetsInstance extends Disposable {
 		}));
 
 		// Forward comm_open messages from the notebook editor to the runtime.
-		this._register(messaging.onDidReceiveMessage(async (message) => {
-			console.log('Widgets service recv message:', message);
+		this._register(this._messaging.onDidReceiveMessage(async (message) => {
 			switch (message.type) {
 				case 'ready': {
-					// Notify the editor to append the bundled widgets stylesheet.
-					this._extensionService.getExtension('vscode.positron-ipywidgets').then((extension) => {
-						if (!extension) {
-							throw new Error('positron-ipywidgets extension not found');
-						}
-						const styleUri = asWebviewUri(
-							extension.extensionLocation.with({
-								path: extension.extensionLocation.path + '/preload-out/index.css'
-							}));
-						messaging.postMessage({ type: 'append_stylesheet', href: styleUri.toString() });
-					});
+					this.handleWebviewReady();
 					break;
 				}
 				case 'comm_open':
-					if (message.target_name === RuntimeClientType.IPyWidgetControl) {
-						const client = await session.createClient(
-							RuntimeClientType.IPyWidgetControl, message.data, message.metadata, message.comm_id);
-						this.createClient(client, messaging, logService);
-					}
+					this.handleWebviewCommOpen(message);
 					break;
 			}
 		}));
 	}
 
-	private createClient(
-		client: IRuntimeClientInstance<any, any>,
-		messaging: IPyWidgetsMessaging,
-		logService: ILogService,
-	) {
+	private createClient(client: IRuntimeClientInstance<any, any>) {
 		let rpcMethods: string[];
 		if (client.getClientType() === RuntimeClientType.IPyWidget) {
 			rpcMethods = ['update'];
@@ -237,8 +221,8 @@ class IPyWidgetsInstance extends Disposable {
 
 		const ipywidgetsClient = new IPyWidgetClientInstance(
 			client,
-			messaging,
-			logService,
+			this._messaging,
+			this._logService,
 			rpcMethods,
 		);
 
@@ -249,19 +233,40 @@ class IPyWidgetsInstance extends Disposable {
 		this._clients.set(client.getClientId(), ipywidgetsClient);
 	}
 
+	private handleWebviewReady() {
+		// Notify the editor to append the bundled widgets stylesheet.
+		this._extensionService.getExtension('vscode.positron-ipywidgets').then((extension) => {
+			if (!extension) {
+				throw new Error('positron-ipywidgets extension not found');
+			}
+			const styleUri = asWebviewUri(
+				extension.extensionLocation.with({
+					path: extension.extensionLocation.path + '/preload-out/index.css'
+				}));
+			this._messaging.postMessage({ type: 'append_stylesheet', href: styleUri.toString() });
+		});
+	}
+
+	private async handleWebviewCommOpen(message: ICommOpen) {
+		if (message.target_name === RuntimeClientType.IPyWidgetControl) {
+			const client = await this._session.createClient(
+				RuntimeClientType.IPyWidgetControl, message.data, message.metadata, message.comm_id);
+			this.createClient(client);
+		}
+	}
 }
 
-interface INotebookMessaging {
+interface INotebookWebviewMessaging {
 	postMessage(message: any): void;
 	onDidReceiveMessage: Event<INotebookWebviewMessage>;
 }
 
-class IPyWidgetsMessaging extends Disposable implements IIPyWidgetsMessaging {
+class IPyWidgetsWebviewMessaging extends Disposable implements IIPyWidgetsWebviewMessaging {
 	private readonly _messageEmitter = new Emitter<IIPyWidgetsMessage>();
 
 	onDidReceiveMessage = this._messageEmitter.event;
 
-	constructor(private readonly _messaging: INotebookMessaging) {
+	constructor(private readonly _messaging: INotebookWebviewMessaging) {
 		super();
 
 		this._register(_messaging.onDidReceiveMessage((event) => {
