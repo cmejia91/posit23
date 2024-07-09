@@ -9,7 +9,7 @@ import { Schemas } from 'vs/base/common/network';
 import { URI } from 'vs/base/common/uri';
 // import { ExtensionIdentifier } from 'vs/platform/extensions/common/extensions';
 import { IWorkspaceTrustManagementService } from 'vs/platform/workspace/common/workspaceTrust';
-import { ICreationRequestMessage } from 'vs/workbench/contrib/notebook/browser/view/renderers/webviewMessages';
+import { IPositronSimpleRenderMessage } from 'vs/workbench/contrib/notebook/browser/view/renderers/webviewMessages';
 import { preloadsScriptStr } from 'vs/workbench/contrib/notebook/browser/view/renderers/webviewPreloads';
 import { INotebookRendererInfo, RendererMessagingSpec } from 'vs/workbench/contrib/notebook/common/notebookCommon';
 import { INotebookService } from 'vs/workbench/contrib/notebook/common/notebookService';
@@ -22,8 +22,6 @@ import { ILanguageRuntimeMessageWebOutput } from 'vs/workbench/services/language
 import { ILanguageRuntimeSession } from 'vs/workbench/services/runtimeSession/common/runtimeSessionService';
 import { MIME_TYPE_WIDGET_STATE, MIME_TYPE_WIDGET_VIEW, IPyWidgetViewSpec } from 'vs/workbench/services/positronIPyWidgets/common/positronIPyWidgetsService';
 import { dirname } from 'vs/base/common/resources';
-import { RenderOutputType } from 'vs/workbench/contrib/notebook/browser/notebookBrowser';
-import { generateUuid } from 'vs/base/common/uuid';
 
 export class PositronNotebookOutputWebviewService implements IPositronNotebookOutputWebviewService {
 
@@ -294,42 +292,21 @@ We did it
 </body>
 `);
 
-		// TODO: Continue here... New issue: I think the 'dimension' message is coming here.
-		//       But we haven't hooked up the webview yet...
-		//       Think we might want to rethink when we send the render message to give our services
-		//       time to hook up their own messaging...
-
-		// TODO: Should this be inside the notebook output webview?
 		// TODO: Need transfer?
 		// const transfer = [valueBytes.buffer];
 		const transfer: ArrayBuffer[] = [];
-		// TODO: Could make cellId a constant?...
-		const cellId = generateUuid();
-		const webviewMessage: ICreationRequestMessage = {
-			type: 'html',
-			content: {
-				type: RenderOutputType.Extension,
-				outputId: id,
-				// TODO: Need metadata?
-				metadata: {},
-				output: {
-					mime: mimeType,
-					valueBytes: valueBytes.buffer,
-				},
-				// TODO: Get from message
-				allOutputs: [],
-			},
-			cellId,
+		const webviewMessage: IPositronSimpleRenderMessage = {
+			type: 'positronRender',
 			outputId: id,
-			cellTop: 0,
-			outputOffset: 0,
-			left: 0,
-			requiredPreloads: [],
-			createOnIdle: true,
+			elementId: 'container',
+			rendererId: renderer.id,
+			mimeType,
+			metadata: message.metadata,
+			valueBytes: valueBytes.buffer,
 		};
 		webview.postMessage(webviewMessage, transfer);
 
-		return new NotebookOutputWebview(id, cellId, runtime.runtimeMetadata.runtimeId, webview);
+		return new NotebookOutputWebview(id, runtime.runtimeMetadata.runtimeId, webview);
 	}
 
 	/**
@@ -382,7 +359,7 @@ window.onload = function() {
 };
 </script>`);
 		// TODO: Should this use an even simpler webview class?
-		return new NotebookOutputWebview(id, '', runtime.runtimeMetadata.runtimeId, webview);
+		return new NotebookOutputWebview(id, runtime.runtimeMetadata.runtimeId, webview);
 	}
 
 	/**
@@ -481,6 +458,6 @@ ${managerState}
 </script>
 </html>
 		`);
-		return new NotebookOutputWebview(id, '', runtime.runtimeMetadata.runtimeId, webview);
+		return new NotebookOutputWebview(id, runtime.runtimeMetadata.runtimeId, webview);
 	}
 }

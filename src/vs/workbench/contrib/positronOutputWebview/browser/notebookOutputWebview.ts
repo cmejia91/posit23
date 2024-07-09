@@ -6,7 +6,7 @@
 import { Emitter, Event } from 'vs/base/common/event';
 import { Disposable } from 'vs/base/common/lifecycle';
 import { INotebookWebviewMessage } from 'vs/workbench/contrib/notebook/browser/notebookBrowser';
-import { FromWebviewMessage, IAckOutputHeightMessage } from 'vs/workbench/contrib/notebook/browser/view/renderers/webviewMessages';
+import { FromWebviewMessage } from 'vs/workbench/contrib/notebook/browser/view/renderers/webviewMessages';
 import { INotebookOutputWebview } from 'vs/workbench/contrib/positronOutputWebview/browser/notebookOutputWebviewService';
 import { IOverlayWebview, } from 'vs/workbench/contrib/webview/browser/webview';
 
@@ -33,7 +33,6 @@ export class NotebookOutputWebview extends Disposable implements INotebookOutput
 	 */
 	constructor(
 		readonly id: string,
-		readonly cellId: string,
 		readonly sessionId: string,
 		readonly webview: IOverlayWebview) {
 		super();
@@ -56,28 +55,13 @@ export class NotebookOutputWebview extends Disposable implements INotebookOutput
 
 			switch (data.type) {
 				// TODO: Handle logRendererDebugMessage?
-
-				// The 'dimension' message sends updates per outputId.
-				// The 'ack-dimension' response expects updates per cellId.
-				// We defined the cellId in our initial 'html' message to the webview.
-				case 'dimension': {
-					webview.postMessage({
-						type: 'ack-dimension',
-						updates: data.updates
-							// TODO: filter needed? Raise on other ids?
-							.filter(update => update.id === id)
-							.map(update => ({
-								cellId,
-								height: update.height,
-								outputId: update.id,
-							})),
-					} as IAckOutputHeightMessage);
+				// TODO: Is this message type needed or should we send RENDER_COMPLETE as above?
+				case 'positronRenderComplete':
+					this._onDidRender.fire();
 					break;
-				}
-				case 'customKernelMessage': {
+				case 'customKernelMessage':
 					this._onDidReceiveMessage.fire({ message: data.message });
 					break;
-				}
 			}
 
 		}));

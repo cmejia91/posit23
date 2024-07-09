@@ -1632,6 +1632,29 @@ async function webviewPreloads(ctx: PreloadContext) {
 		const event = rawEvent as ({ data: webviewMessages.ToWebviewMessage });
 
 		switch (event.data.type) {
+			// --- Start Positron ---
+			// TODO: Better name
+			case 'positronRender': {
+				// TODO: Is this the only way to get a signal?
+				const data = event.data;
+				outputRunner.enqueueIdle(data.outputId, async signal => {
+					const element = document.getElementById(data.elementId);
+					if (!element) {
+						throw new Error(`No element with ID ${data.elementId}`);
+					}
+					const item = createOutputItem(
+						data.outputId,
+						data.mimeType,
+						data.metadata,
+						data.valueBytes,
+						[],
+					);
+					await renderers.render(item, data.rendererId, element, signal);
+					postNotebookMessage('positronRenderComplete', {});
+				});
+				break;
+			}
+			// --- End Positron ---
 			case 'initializeMarkup': {
 				try {
 					await Promise.all(event.data.cells.map(info => viewModel.ensureMarkupCell(info)));

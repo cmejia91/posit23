@@ -489,8 +489,27 @@ export interface IPerformanceMessage extends BaseToWebviewMessage {
 	readonly mimeType?: string;
 }
 
+// --- Start Positron ---
+export interface IPositronSimpleRenderMessage {
+	readonly type: 'positronRender';
+	readonly outputId: string;
+	readonly elementId: string;
+	readonly rendererId: string;
+	readonly mimeType: string;
+	readonly metadata: unknown;
+	readonly valueBytes: Uint8Array;
+}
+
+export interface IPositronSimpleRenderCompleteMessage extends BaseToWebviewMessage {
+	readonly type: 'positronRenderComplete';
+}
+// --- End Positron ---
+
 
 export type FromWebviewMessage = WebviewInitialized |
+	// --- Start Positron ---
+	IPositronSimpleRenderCompleteMessage |
+	// --- End Positron ---
 	IDimensionMessage |
 	IMouseEnterMessage |
 	IMouseLeaveMessage |
@@ -525,6 +544,9 @@ export type FromWebviewMessage = WebviewInitialized |
 	IPerformanceMessage;
 
 export type ToWebviewMessage = IClearMessage |
+	// --- Start Positron ---
+	IPositronSimpleRenderMessage |
+	// --- End Positron ---
 	IFocusOutputMessage |
 	IBlurOutputMessage |
 	IAckOutputHeightMessage |
