@@ -99,7 +99,7 @@ export class Comm implements base.IClassicComm, Disposable {
 			this._callbacks.set(msgId, { iopub: { status: callbacks.iopub.status } });
 		}
 
-		console.log('Comm.send', data, callbacks, metadata, buffers, msgId);
+		console.log('Comm.send', this.comm_id, data, callbacks, metadata, buffers, msgId);
 
 		this.messaging.postMessage({
 			type: 'comm_msg',

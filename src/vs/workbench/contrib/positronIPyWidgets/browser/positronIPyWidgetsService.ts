@@ -164,13 +164,9 @@ class IPyWidgetsInstance extends Disposable {
 		super();
 
 		// Configure existing widget clients.
-		session.listClients().then((clients) => {
+		session.listClients(RuntimeClientType.IPyWidget).then((clients) => {
 			for (const client of clients) {
-				if (client.getClientType() === RuntimeClientType.IPyWidget ||
-					client.getClientType() === RuntimeClientType.IPyWidgetControl) {
-
-					this.createIPyWidgetsClientInstance(client, messaging, logService);
-				}
+				this.createIPyWidgetsClientInstance(client, messaging, logService);
 			}
 		});
 
