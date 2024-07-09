@@ -15,10 +15,10 @@ import { isEqual } from 'vs/base/common/resources';
 import { ILogService } from 'vs/platform/log/common/log';
 import { asWebviewUri } from 'vs/workbench/contrib/webview/common/webview';
 import { IExtensionService } from 'vs/workbench/services/extensions/common/extensions';
-import { IIPyWidgetsMessage, IIPyWidgetsMessaging } from './positronIPyWidgetsMessaging';
-import { RuntimeClientState } from 'vs/workbench/services/languageRuntime/common/languageRuntimeClientInstance';
+import { IIPyWidgetsMessage, IIPyWidgetsMessaging } from '../../../services/languageRuntime/common/positronIPyWidgetsMessaging';
 import { IPositronNotebookOutputWebviewService } from 'vs/workbench/contrib/positronOutputWebview/browser/notebookOutputWebviewService';
 import { WebviewPlotClient } from 'vs/workbench/contrib/positronPlots/browser/webviewPlotClient';
+import { IPyWidgetClientInstance } from 'vs/workbench/services/languageRuntime/common/languageRuntimeIPyWidgetClient';
 
 /**
  * The PositronIPyWidgetsService is responsible for managing IPyWidgetsInstances.
@@ -47,21 +47,21 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 
 		// Start ipywidgets instances for existing sessions.
 		this._runtimeSessionService.activeSessions.forEach(session => {
-			this.startIPyWidgetsInstance(session);
+			this.attachSession(session);
 		});
 
 		// Start ipywidgets instances for new sessions.
 		// TODO: Should we listen to onWillStartSession instead?
 		this._register(this._runtimeSessionService.onDidStartRuntime((session) => {
-			this.startIPyWidgetsInstance(session);
+			this.attachSession(session);
 		}));
 	}
 
-	// TODO: Rename to attachSession?
-	private startIPyWidgetsInstance(session: ILanguageRuntimeSession) {
+	private attachSession(session: ILanguageRuntimeSession) {
 		if (session.metadata.sessionMode === LanguageRuntimeSessionMode.Console) {
-			// TODO: dispose
-			session.onDidReceiveRuntimeMessageOutput(async (message) => {
+			const disposableStore = new DisposableStore();
+
+			disposableStore.add(session.onDidReceiveRuntimeMessageOutput(async (message) => {
 				if (message.kind === RuntimeOutputKind.IPyWidget) {
 					console.log(message);
 					const webview = await this._notebookOutputWebviewService.createNotebookOutputWebview(
@@ -75,6 +75,7 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 							this._extensionService,
 							this._logService,
 						);
+						disposableStore.add(iPyWidgetsInstance);
 						// TODO: Is this the right key? How do we remove this when the webview/comm is closed?
 						this._iPyWidgetsInstancesByMessageId.set(
 							message.id,
@@ -84,7 +85,11 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 						this._onDidCreatePlot.fire(client);
 					}
 				}
-			});
+			}));
+
+			disposableStore.add(session.onDidEndSession((e) => {
+				disposableStore.dispose();
+			}));
 		} else if (session.metadata.sessionMode === LanguageRuntimeSessionMode.Notebook) {
 			// Find the session's notebook editor by its notebook URI.
 			const notebookEditor = this._notebookEditorService.listNotebookEditors().find(
@@ -110,6 +115,7 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 			);
 
 			const disposableStore = new DisposableStore();
+			disposableStore.add(iPyWidgetsInstance);
 
 			// TODO: Does this ever fire?
 			// Dispose the instance when the model changes.
@@ -119,7 +125,6 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 				}
 				this._logService.debug(`Editor model changed for session '${session.sessionId}, disposing ipywidgets instance`);
 				this._iPyWidgetsInstancesBySessionId.delete(session.sessionId);
-				iPyWidgetsInstance.dispose();
 				disposableStore.dispose();
 			}));
 
@@ -130,7 +135,6 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 				}
 				this._logService.debug(`Notebook editor removed for session '${session.sessionId}, disposing ipywidgets instance`);
 				this._iPyWidgetsInstancesBySessionId.delete(session.sessionId);
-				iPyWidgetsInstance.dispose();
 				disposableStore.dispose();
 			}));
 		}
@@ -147,7 +151,7 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 
 class IPyWidgetsInstance extends Disposable {
 
-	private readonly _clients = new Map<string, IPyWidgetsClientInstance>();
+	private readonly _clients = new Map<string, IPyWidgetClientInstance>();
 
 	/**
 	 * @param session The language runtime session.
@@ -166,7 +170,7 @@ class IPyWidgetsInstance extends Disposable {
 		// Configure existing widget clients.
 		session.listClients(RuntimeClientType.IPyWidget).then((clients) => {
 			for (const client of clients) {
-				this.createIPyWidgetsClientInstance(client, messaging, logService);
+				this.createClient(client, messaging, logService);
 			}
 		});
 
@@ -175,7 +179,7 @@ class IPyWidgetsInstance extends Disposable {
 			if (client.getClientType() === RuntimeClientType.IPyWidget ||
 				client.getClientType() === RuntimeClientType.IPyWidgetControl) {
 
-				this.createIPyWidgetsClientInstance(client, messaging, logService);
+				this.createClient(client, messaging, logService);
 
 				// Notify the notebook editor about the new client instance.
 				messaging.postMessage({
@@ -210,22 +214,32 @@ class IPyWidgetsInstance extends Disposable {
 					if (message.target_name === RuntimeClientType.IPyWidgetControl) {
 						const client = await session.createClient(
 							RuntimeClientType.IPyWidgetControl, message.data, message.metadata, message.comm_id);
-						this.createIPyWidgetsClientInstance(client, messaging, logService);
+						this.createClient(client, messaging, logService);
 					}
 					break;
 			}
 		}));
 	}
 
-	private createIPyWidgetsClientInstance(
+	private createClient(
 		client: IRuntimeClientInstance<any, any>,
 		messaging: IPyWidgetsMessaging,
 		logService: ILogService,
 	) {
-		const ipywidgetsClient = new IPyWidgetsClientInstance(
+		let rpcMethods: string[];
+		if (client.getClientType() === RuntimeClientType.IPyWidget) {
+			rpcMethods = ['update'];
+		} else if (client.getClientType() === RuntimeClientType.IPyWidgetControl) {
+			rpcMethods = ['request_states'];
+		} else {
+			throw new Error(`Unexpected client type: ${client.getClientType()}`);
+		}
+
+		const ipywidgetsClient = new IPyWidgetClientInstance(
 			client,
 			messaging,
 			logService,
+			rpcMethods,
 		);
 
 		this._register(ipywidgetsClient.onDidClose(() => {
@@ -235,98 +249,6 @@ class IPyWidgetsInstance extends Disposable {
 		this._clients.set(client.getClientId(), ipywidgetsClient);
 	}
 
-}
-
-// TODO: Make more private methods?...
-class IPyWidgetsClientInstance extends Disposable {
-	private readonly _closeEmitter = new Emitter<void>();
-
-	onDidClose = this._closeEmitter.event;
-
-	constructor(
-		private readonly _client: IRuntimeClientInstance<any, any>,
-		private readonly _messaging: IPyWidgetsMessaging,
-		private readonly _logService: ILogService,
-	) {
-		super();
-
-		// Forward messages from the notebook editor to the client.
-		this._register(_messaging.onDidReceiveMessage(async (message) => {
-			// Only handle messages for this client.
-			if (!('comm_id' in message) || message.comm_id !== this._client.getClientId()) {
-				return;
-			}
-
-			switch (message.type) {
-				case 'comm_msg': {
-					if (message.msg_id &&
-						'method' in message.content &&
-						(message.content.method === 'update' ||
-							message.content.method === 'request_states')) {
-						// It's a known RPC request, perform the RPC.
-						await this.performRpc(message.content, 5000, message.msg_id);
-					} else {
-						// Send a fire-and-forget message to the client.
-						this._client.sendMessage(message);
-					}
-					break;
-				}
-				default:
-					this._logService.warn(
-						`Unhandled message from notebook for client ${this._client.getClientId()}: `
-						+ JSON.stringify(message)
-					);
-					break;
-			}
-		}));
-
-		// Forward messages from the client to the notebook editor.
-		this._register(_client.onDidReceiveData(data => {
-			this._logService.debug('RECV comm_msg:', data);
-
-			switch (data.method) {
-				case 'update':
-					this._messaging.postMessage({
-						type: 'comm_msg',
-						comm_id: this._client.getClientId(),
-						content: { data }
-					});
-					break;
-				default:
-					this._logService.warn(
-						`Unhandled message from client ${this._client.getClientId()} for notebook: `
-						+ JSON.stringify(data)
-					);
-					break;
-			}
-		}));
-
-		// If the client is closed, emit the close event.
-		const stateChangeEvent = Event.fromObservable(_client.clientState);
-		this._register(stateChangeEvent(state => {
-			if (state === RuntimeClientState.Closed) {
-				this._messaging.postMessage({
-					type: 'comm_close',
-					comm_id: this._client.getClientId(),
-				});
-				this._closeEmitter.fire();
-			}
-		}));
-	}
-
-	private async performRpc(request: any, timeout: number, msgId: string): Promise<void> {
-		// Perform the RPC with the client.
-		const reply = await this._client.performRpc(request, timeout);
-
-		// Forward the output to the notebook editor.
-		this._logService.debug('RECV comm_msg:', reply);
-		this._messaging.postMessage({
-			type: 'comm_msg',
-			comm_id: this._client.getClientId(),
-			content: { data: reply },
-			msg_id: msgId,
-		});
-	}
 }
 
 interface INotebookMessaging {

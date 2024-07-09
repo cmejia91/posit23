@@ -3,7 +3,7 @@
  *  Licensed under the Elastic License 2.0. See LICENSE.txt for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { VSBuffer, encodeBase64 } from 'vs/base/common/buffer';
+import { VSBuffer } from 'vs/base/common/buffer';
 // import { FileAccess, Schemas } from 'vs/base/common/network';
 import { Schemas } from 'vs/base/common/network';
 import { URI } from 'vs/base/common/uri';
@@ -20,7 +20,6 @@ import { asWebviewUri } from 'vs/workbench/contrib/webview/common/webview';
 import { IExtensionService } from 'vs/workbench/services/extensions/common/extensions';
 import { ILanguageRuntimeMessageWebOutput } from 'vs/workbench/services/languageRuntime/common/languageRuntimeService';
 import { ILanguageRuntimeSession } from 'vs/workbench/services/runtimeSession/common/runtimeSessionService';
-import { MIME_TYPE_WIDGET_STATE, MIME_TYPE_WIDGET_VIEW, IPyWidgetViewSpec } from 'vs/workbench/services/positronIPyWidgets/common/positronIPyWidgetsService';
 import { dirname } from 'vs/base/common/resources';
 
 export class PositronNotebookOutputWebviewService implements IPositronNotebookOutputWebviewService {
@@ -132,9 +131,6 @@ export class PositronNotebookOutputWebviewService implements IPositronNotebookOu
 
 		const data = message.data[mimeType] as any;
 
-		// Get the renderer's entrypoint and convert it to a webview URI
-		const rendererPath = asWebviewUri(renderer.entrypoint.path);
-
 		// Create the preload script contents. This is a simplified version of the
 		// preloads script that the notebook renderer API creates.
 		const preloadsInfo = [
@@ -206,9 +202,6 @@ export class PositronNotebookOutputWebviewService implements IPositronNotebookOu
 					// the extension that provides it
 					renderer.extensionLocation,
 					...preloadsInfo.map(preload => dirname(preload.entrypoint)),
-					// TODO: Need this?
-					// dirname(FileAccess.asFileUri('vs/loader.js')),
-					// jupyterRenderers.extensionLocation,
 					...resourceRoots
 				],
 			},
@@ -221,11 +214,6 @@ export class PositronNotebookOutputWebviewService implements IPositronNotebookOu
 
 		// Create the webview itself
 		const webview = this._webviewService.createWebviewOverlay(webviewInitInfo);
-
-		// Encode the data as base64, as either a raw string or JSON object
-		const valueBytes = typeof (data) === 'string' ? VSBuffer.fromString(data) :
-			VSBuffer.fromString(JSON.stringify(data));
-		const rawData = encodeBase64(valueBytes);
 
 		// Form the HTML to send to the webview. Currently, this is a very simplified version
 		// of the HTML that the notebook renderer API creates, but it works for many renderers.
@@ -249,49 +237,12 @@ export class PositronNotebookOutputWebviewService implements IPositronNotebookOu
 We did it
 <div id='container'></div>
 <div id="_defaultColorPalatte"></div>
-<!--
-<script type="module">
-	const vscode = acquireVsCodeApi();
-	import { activate } from "${rendererPath.toString()}"
-
-	// A stub implementation of RendererContext
-	var ctx = {
-		workspace: {
-			isTrusted: ${this._workspaceTrustManagementService.isWorkspaceTrusted()}
-		}
-	}
-
-	// Activate the renderer and create the data object
-	var renderer = activate(ctx);
-	var utf8bytes = Uint8Array.from(atob('${rawData}'), (m) => m.codePointAt(0));
-	var rawData = new TextDecoder().decode(utf8bytes);
-	var data = {
-		id: '${id}',
-		mime: '${mimeType}',
-		text: () => { return rawData },
-		json: () => { return JSON.parse(rawData) },
-		data: () => { return new Uint8Array() /* NYI */ },
-		blob: () => { return new Blob(); /* NYI */ },
-	};
-
-	const controller = new AbortController();
-	const signal = controller.signal;
-
-	// Render the widget when the page is loaded, then post a message to the
-	// host letting it know that render is complete.
-	window.onload = function() {
-		let container = document.getElementById('container');
-		console.log(window.requirejs);
-		console.log(renderer);
-		renderer.renderOutputItem(data, container, signal);
-		vscode.postMessage('${RENDER_COMPLETE}');
-	};
-</script>
--->
 <script type="module">${preloads}</script>
 </body>
 `);
 
+		const valueBytes = typeof (data) === 'string' ? VSBuffer.fromString(data) :
+			VSBuffer.fromString(JSON.stringify(data));
 		// TODO: Need transfer?
 		// const transfer = [valueBytes.buffer];
 		const transfer: ArrayBuffer[] = [];
@@ -358,106 +309,8 @@ window.onload = function() {
 	vscode.postMessage('${RENDER_COMPLETE}');
 };
 </script>`);
-		// TODO: Should this use an even simpler webview class?
+		// TODO: Should this use an even simpler webview class here?
 		return new NotebookOutputWebview(id, runtime.runtimeMetadata.runtimeId, webview);
 	}
 
-	/**
-	 * Renders widget HTML in a webview.
-	 *
-	 * @param id The ID of the notebook output
-	 * @param runtime The runtime that emitted the output
-	 * @param data A set of records containing the widget state and view mimetype data
-	 *
-	 * @returns A promise that resolves to the new webview.
-	 */
-	async createWidgetHtmlOutput(id: string,
-		runtime: ILanguageRuntimeSession,
-		data: Record<string, string>):
-		Promise<INotebookOutputWebview> {
-		const managerState = data[MIME_TYPE_WIDGET_STATE];
-		const widgetViews = JSON.parse(data[MIME_TYPE_WIDGET_VIEW]) as IPyWidgetViewSpec[];
-
-		// load positron-python extension, which has modules needed to load ipywidgets
-		const pythonExtension = await this._extensionService.getExtension('ms-python.python');
-		if (!pythonExtension) {
-			return Promise.reject(`positron-python not found`);
-		}
-		// Form the path to the necessary libraries and inject it into the HTML
-		const requiresPath = asWebviewUri(
-			URI.joinPath(pythonExtension.extensionLocation, 'resources/js/requirejs/require.js'));
-
-		const htmlManagerPath = asWebviewUri(
-			URI.joinPath(pythonExtension.extensionLocation, 'resources/js/@jupyter-widgets/html-manager/dist/embed-amd.js'));
-
-		let additionalScripts = '';
-		const usesJupyterMatplotlib = managerState.includes('"model_module":"jupyter-matplotlib"');
-
-		if (usesJupyterMatplotlib) {
-			const jupyterMatplotlibPath = asWebviewUri(
-				URI.joinPath(pythonExtension.extensionLocation, 'resources/js/jupyter-matplotlib/dist/index.js'));
-			additionalScripts += `<script src='${jupyterMatplotlibPath}'></script>`;
-		}
-
-		// Create the metadata for the webview
-		const webviewInitInfo: WebviewInitInfo = {
-			contentOptions: {
-				allowScripts: true,
-				localResourceRoots: [pythonExtension.extensionLocation]
-			},
-			extension: {
-				id: runtime.runtimeMetadata.extensionId
-			},
-			options: {},
-			title: '', // TODO: should this be a parameter?
-		};
-		const webview = this._webviewService.createWebviewOverlay(webviewInitInfo);
-
-		const createWidgetDiv = (widgetView: IPyWidgetViewSpec) => {
-			const model_id = widgetView.model_id;
-			const viewString = JSON.stringify(widgetView);
-			return (`
-<div id="widget-${model_id}">
-	<script type="${MIME_TYPE_WIDGET_VIEW}">
-		${viewString}
-	</script>
-</div>`
-			);
-		};
-		const widgetDivs = widgetViews.map(view => createWidgetDiv(view)).join('\n');
-
-		webview.setHtml(`
-<html>
-<head>
-
-<!-- Load RequireJS, used by the IPywidgets for dependency management -->
-<script src='${requiresPath}'></script>
-
-<!-- Load the HTML manager, which is used to render the widgets -->
-<script src='${htmlManagerPath}'></script>
-
-<!-- Load additional dependencies that may be required by the widget type -->
-<!-- If these are not included, they will just be loaded from CDN -->
-${additionalScripts}
-
-<!-- The state of all the widget models on the page -->
-<script type="${MIME_TYPE_WIDGET_STATE}">
-${managerState}
-</script>
-</head>
-
-<body>
-	<!-- The view specs of the primary widget models only -->
-	${widgetDivs}
-</body>
-<script>
-	const vscode = acquireVsCodeApi();
-	window.onload = function() {
-		vscode.postMessage('${RENDER_COMPLETE}');
-};
-</script>
-</html>
-		`);
-		return new NotebookOutputWebview(id, runtime.runtimeMetadata.runtimeId, webview);
-	}
 }
