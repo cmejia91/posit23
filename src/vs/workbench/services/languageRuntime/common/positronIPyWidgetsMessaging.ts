@@ -16,10 +16,7 @@ export interface ICommClose {
 export interface ICommMessage {
 	type: 'comm_msg';
 	comm_id: string;
-	content: {
-		data: any;
-		method?: string;
-	};
+	data: any;
 	msg_id?: string;
 }
 

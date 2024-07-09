@@ -6,7 +6,7 @@
 import * as base from '@jupyter-widgets/base';
 import { JSONObject, JSONValue, UUID } from '@lumino/coreutils';
 import { Disposable } from 'vscode-notebook-renderer/events';
-import type { IIPyWidgetsMessaging, ICommMessage, ICommClose } from '../../../src/vs/workbench/contrib/positronIPyWidgets/browser/positronIPyWidgetsMessaging.js';
+import type { IIPyWidgetsMessaging, ICommMessage, ICommClose } from '../../../src/vs/workbench/services/languageRuntime/common/positronIPyWidgetsMessaging';
 import { KernelMessage } from '@jupyterlab/services';
 
 /**
@@ -105,7 +105,7 @@ export class Comm implements base.IClassicComm, Disposable {
 			type: 'comm_msg',
 			comm_id: this.comm_id,
 			msg_id: msgId,
-			content: data,
+			data: data,
 		});
 
 		return msgId;
@@ -153,7 +153,7 @@ export class Comm implements base.IClassicComm, Disposable {
 		this._on_msg?.({
 			content: {
 				comm_id: this.comm_id,
-				data: message.content.data,
+				data: message.data,
 			},
 			// Stub the rest of the interface - these are not currently used by widget libraries.
 			channel: 'iopub',

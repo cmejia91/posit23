@@ -42,6 +42,27 @@ export class IPyWidgetClientInstance extends Disposable {
 			}
 		}));
 
+		// Forward messages from the client to the notebook editor.
+		this._register(_client.onDidReceiveData(data => {
+			this._logService.debug('RECV comm_msg:', data);
+
+			switch (data.method) {
+				case 'update':
+					this._messaging.postMessage({
+						type: 'comm_msg',
+						comm_id: this._client.getClientId(),
+						data: data,
+					});
+					break;
+				default:
+					this._logService.warn(
+						`Unhandled message from client ${this._client.getClientId()} for notebook: `
+						+ JSON.stringify(data)
+					);
+					break;
+			}
+		}));
+
 		// If the client is closed, emit the close event.
 		const stateChangeEvent = Event.fromObservable(_client.clientState);
 		this._register(stateChangeEvent(state => {
@@ -58,23 +79,20 @@ export class IPyWidgetClientInstance extends Disposable {
 	private async handleCommMessage(message: ICommMessage) {
 		// TODO: If we do separate messages for FromWebview and ToWebview we could simplify this.
 		const msgId = message.msg_id;
-		const method = message.content.method;
+		const method = message.data.method;
 		if (
 			msgId !== undefined &&
 			method !== undefined &&
 			this._rpcMethods.includes(method)) {
 			// It's a known RPC request, perform the RPC with the client.
-			const reply = await this._client.performRpc({
-				data: message.content.data,
-				method,
-			}, 5000);
+			const reply = await this._client.performRpc(message.data, 5000);
 
 			// Forward the output to the notebook editor.
 			this._logService.debug('RECV comm_msg:', reply);
 			this._messaging.postMessage({
 				type: 'comm_msg',
 				comm_id: this._client.getClientId(),
-				content: { data: reply },
+				data: reply,
 				msg_id: msgId,
 			});
 		} else {
