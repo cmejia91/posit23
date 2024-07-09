@@ -27,14 +27,19 @@ export interface ICommOpen {
 	type: 'comm_open';
 	comm_id: string;
 	target_name: string;
-	content: any;
-	metadata: any;
+	data?: any;
+	metadata?: any;
+}
+
+export interface IReady {
+	type: 'ready';
 }
 
 export type IIPyWidgetsMessage = IAppendStylesheet |
 	ICommClose |
 	ICommMessage |
-	ICommOpen;
+	ICommOpen |
+	IReady;
 
 export interface Disposable {
 	dispose(): void;

@@ -450,6 +450,7 @@ async function webviewPreloads(ctx: PreloadContext) {
 		private readonly pending = new Map<string, webviewMessages.DimensionUpdate>();
 
 		updateHeight(id: string, height: number, options: { init?: boolean; isOutput?: boolean }) {
+			console.log('Updating height:', id, height, options);
 			if (!this.pending.size) {
 				setTimeout(() => {
 					this.updateImmediately();
@@ -477,6 +478,7 @@ async function webviewPreloads(ctx: PreloadContext) {
 				return;
 			}
 
+			console.log('Sending dimension:', Array.from(this.pending.values()));
 			postNotebookMessage<webviewMessages.IDimensionMessage>('dimension', {
 				updates: Array.from(this.pending.values())
 			});
@@ -1731,6 +1733,7 @@ async function webviewPreloads(ctx: PreloadContext) {
 				break;
 			}
 			case 'ack-dimension': {
+				console.log('Got ack-dimension:', event.data.updates);
 				for (const { cellId, outputId, height } of event.data.updates) {
 					viewModel.updateOutputHeight(cellId, outputId, height);
 				}
@@ -2403,6 +2406,7 @@ async function webviewPreloads(ctx: PreloadContext) {
 
 		public updateOutputHeight(cellId: string, outputId: string, height: number) {
 			const cell = this._outputCells.get(cellId);
+			console.log('updateOutputHeight cell:', cell, this._outputCells);
 			cell?.updateOutputHeight(outputId, height);
 		}
 

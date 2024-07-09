@@ -4,11 +4,12 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { VSBuffer, encodeBase64 } from 'vs/base/common/buffer';
+// import { FileAccess, Schemas } from 'vs/base/common/network';
 import { Schemas } from 'vs/base/common/network';
 import { URI } from 'vs/base/common/uri';
-import { ExtensionIdentifier } from 'vs/platform/extensions/common/extensions';
+// import { ExtensionIdentifier } from 'vs/platform/extensions/common/extensions';
 import { IWorkspaceTrustManagementService } from 'vs/platform/workspace/common/workspaceTrust';
-import { RendererMetadata, StaticPreloadMetadata } from 'vs/workbench/contrib/notebook/browser/view/renderers/webviewMessages';
+import { ICreationRequestMessage } from 'vs/workbench/contrib/notebook/browser/view/renderers/webviewMessages';
 import { preloadsScriptStr } from 'vs/workbench/contrib/notebook/browser/view/renderers/webviewPreloads';
 import { INotebookRendererInfo, RendererMessagingSpec } from 'vs/workbench/contrib/notebook/common/notebookCommon';
 import { INotebookService } from 'vs/workbench/contrib/notebook/common/notebookService';
@@ -20,6 +21,9 @@ import { IExtensionService } from 'vs/workbench/services/extensions/common/exten
 import { ILanguageRuntimeMessageWebOutput } from 'vs/workbench/services/languageRuntime/common/languageRuntimeService';
 import { ILanguageRuntimeSession } from 'vs/workbench/services/runtimeSession/common/runtimeSessionService';
 import { MIME_TYPE_WIDGET_STATE, MIME_TYPE_WIDGET_VIEW, IPyWidgetViewSpec } from 'vs/workbench/services/positronIPyWidgets/common/positronIPyWidgetsService';
+import { dirname } from 'vs/base/common/resources';
+import { RenderOutputType } from 'vs/workbench/contrib/notebook/browser/notebookBrowser';
+import { generateUuid } from 'vs/base/common/uuid';
 
 export class PositronNotebookOutputWebviewService implements IPositronNotebookOutputWebviewService {
 
@@ -42,9 +46,9 @@ export class PositronNotebookOutputWebviewService implements IPositronNotebookOu
 		// Check to see if any of the MIME types have a renderer associated with
 		// them. If they do, prefer the renderer.
 		for (const mimeType of Object.keys(output.data)) {
-			if (mimeType === MIME_TYPE_WIDGET_STATE || mimeType === MIME_TYPE_WIDGET_VIEW) {
-				return this.createWidgetHtmlOutput(output.id, runtime, output.data);
-			}
+			// if (mimeType === MIME_TYPE_WIDGET_STATE || mimeType === MIME_TYPE_WIDGET_VIEW) {
+			// 	return this.createWidgetHtmlOutput(output.id, runtime, output.data);
+			// }
 
 			if (mimeType === 'text/plain') {
 				continue;
@@ -55,7 +59,7 @@ export class PositronNotebookOutputWebviewService implements IPositronNotebookOu
 				continue;
 			}
 
-			const renderer = this._notebookService.getPreferredRenderer(mimeType);
+			const renderer = this._notebookService.getPreferredRenderer(mimeType, 'jupyter-notebook');
 			if (renderer) {
 				return this.createNotebookRenderOutput(output.id, runtime,
 					renderer, mimeType, output);
@@ -81,23 +85,23 @@ export class PositronNotebookOutputWebviewService implements IPositronNotebookOu
 	 * @param mimeType The MIME type to get renderers for
 	 * @returns An array of renderers that can render the given MIME type
 	 */
-	private getRendererData(mimeType: string): RendererMetadata[] {
-		return this._notebookService.getRenderers()
-			.filter(renderer => renderer.mimeTypes.includes(mimeType))
-			.map((renderer): RendererMetadata => {
-				const entrypoint = {
-					extends: renderer.entrypoint.extends,
-					path: this.asWebviewUri(renderer.entrypoint.path, renderer.extensionLocation).toString()
-				};
-				return {
-					id: renderer.id,
-					entrypoint,
-					mimeTypes: renderer.mimeTypes,
-					messaging: renderer.messaging !== RendererMessagingSpec.Never,
-					isBuiltin: renderer.isBuiltin
-				};
-			});
-	}
+	// private getRendererData(mimeType: string): RendererMetadata[] {
+	// 	return this._notebookService.getRenderers()
+	// 		.filter(renderer => renderer.mimeTypes.includes(mimeType))
+	// 		.map((renderer): RendererMetadata => {
+	// 			const entrypoint = {
+	// 				extends: renderer.entrypoint.extends,
+	// 				path: this.asWebviewUri(renderer.entrypoint.path, renderer.extensionLocation).toString()
+	// 			};
+	// 			return {
+	// 				id: renderer.id,
+	// 				entrypoint,
+	// 				mimeTypes: renderer.mimeTypes,
+	// 				messaging: renderer.messaging !== RendererMessagingSpec.Never,
+	// 				isBuiltin: renderer.isBuiltin
+	// 			};
+	// 		});
+	// }
 
 	/**
 	 * Convert a URI to a webview URI.
@@ -109,17 +113,17 @@ export class PositronNotebookOutputWebviewService implements IPositronNotebookOu
 	/**
 	 * Gets the static preloads for a given extension.
 	 */
-	private async getStaticPreloadsData(ext: ExtensionIdentifier):
-		Promise<StaticPreloadMetadata[]> {
-		const preloads = await this._notebookService.getStaticPreloadsForExt(ext);
-		return Array.from(preloads, preload => {
-			return {
-				entrypoint: this.asWebviewUri(preload.entrypoint, preload.extensionLocation)
-					.toString()
-					.toString()
-			};
-		});
-	}
+	// private async getStaticPreloadsData(ext: ExtensionIdentifier):
+	// 	Promise<StaticPreloadMetadata[]> {
+	// 	const preloads = await this._notebookService.getStaticPreloadsForExt(ext);
+	// 	return Array.from(preloads, preload => {
+	// 		return {
+	// 			entrypoint: this.asWebviewUri(preload.entrypoint, preload.extensionLocation)
+	// 				.toString()
+	// 				.toString()
+	// 		};
+	// 	});
+	// }
 
 	private async createNotebookRenderOutput(id: string,
 		runtime: ILanguageRuntimeSession,
@@ -135,6 +139,21 @@ export class PositronNotebookOutputWebviewService implements IPositronNotebookOu
 
 		// Create the preload script contents. This is a simplified version of the
 		// preloads script that the notebook renderer API creates.
+		const preloadsInfo = [
+			...this._notebookService.getStaticPreloads('jupyter-notebook'),
+			...await this._notebookService.getStaticPreloadsForExt(renderer.extensionId),
+		];
+		const preloadsData = Array.from(preloadsInfo).map(preload => {
+			return {
+				entrypoint: this.asWebviewUri(preload.entrypoint, preload.extensionLocation)
+					.toString()
+					.toString()
+			};
+		});
+		// const jupyterRenderers = (await this._extensionService.getExtension('ms-toolsai.jupyter-renderers'));
+		// if (!jupyterRenderers) {
+		// 	throw new Error('Extension not found: ms-toolsai.jupyter-renderers');
+		// }
 		const preloads = preloadsScriptStr({
 			// PreloadStyles
 			outputNodeLeftPadding: 0,
@@ -150,8 +169,21 @@ export class PositronNotebookOutputWebviewService implements IPositronNotebookOu
 			linkifyFilePaths: false,
 			minimalError: false,
 		},
-			this.getRendererData(mimeType),
-			await this.getStaticPreloadsData(renderer.extensionId),
+			// TODO: Do we need all mime types renderers instead?
+			//       Currently that's also returning the jupyter ipywidgets renderer in addition to positron's
+			//       and its trying to use that one and failing because we didn't also setup its local resource roots
+			[{
+				id: renderer.id,
+				entrypoint: {
+					...renderer.entrypoint,
+					path: this.asWebviewUri(renderer.entrypoint.path, renderer.extensionLocation).toString(),
+				},
+				mimeTypes: renderer.mimeTypes,
+				messaging: renderer.messaging !== RendererMessagingSpec.Never,
+				isBuiltin: renderer.isBuiltin
+			}], // rendererData
+			// this.getRendererData(mimeType),
+			preloadsData,
 			this._workspaceTrustManagementService.isWorkspaceTrusted(),
 			id);
 
@@ -175,6 +207,10 @@ export class PositronNotebookOutputWebviewService implements IPositronNotebookOu
 					// Ensure that the renderer can load local resources from
 					// the extension that provides it
 					renderer.extensionLocation,
+					...preloadsInfo.map(preload => dirname(preload.entrypoint)),
+					// TODO: Need this?
+					// dirname(FileAccess.asFileUri('vs/loader.js')),
+					// jupyterRenderers.extensionLocation,
 					...resourceRoots
 				],
 			},
@@ -189,9 +225,9 @@ export class PositronNotebookOutputWebviewService implements IPositronNotebookOu
 		const webview = this._webviewService.createWebviewOverlay(webviewInitInfo);
 
 		// Encode the data as base64, as either a raw string or JSON object
-		const rawData = encodeBase64(
-			typeof (data) === 'string' ? VSBuffer.fromString(data) :
-				VSBuffer.fromString(JSON.stringify(data)));
+		const valueBytes = typeof (data) === 'string' ? VSBuffer.fromString(data) :
+			VSBuffer.fromString(JSON.stringify(data));
+		const rawData = encodeBase64(valueBytes);
 
 		// Form the HTML to send to the webview. Currently, this is a very simplified version
 		// of the HTML that the notebook renderer API creates, but it works for many renderers.
@@ -212,8 +248,10 @@ export class PositronNotebookOutputWebviewService implements IPositronNotebookOu
 	</style>
 </head>
 <body>
+We did it
 <div id='container'></div>
 <div id="_defaultColorPalatte"></div>
+<!--
 <script type="module">
 	const vscode = acquireVsCodeApi();
 	import { activate } from "${rendererPath.toString()}"
@@ -245,15 +283,53 @@ export class PositronNotebookOutputWebviewService implements IPositronNotebookOu
 	// host letting it know that render is complete.
 	window.onload = function() {
 		let container = document.getElementById('container');
+		console.log(window.requirejs);
+		console.log(renderer);
 		renderer.renderOutputItem(data, container, signal);
 		vscode.postMessage('${RENDER_COMPLETE}');
 	};
 </script>
+-->
 <script type="module">${preloads}</script>
 </body>
 `);
 
-		return new NotebookOutputWebview(id, runtime.runtimeMetadata.runtimeId, webview);
+		// TODO: Continue here... New issue: I think the 'dimension' message is coming here.
+		//       But we haven't hooked up the webview yet...
+		//       Think we might want to rethink when we send the render message to give our services
+		//       time to hook up their own messaging...
+
+		// TODO: Should this be inside the notebook output webview?
+		// TODO: Need transfer?
+		// const transfer = [valueBytes.buffer];
+		const transfer: ArrayBuffer[] = [];
+		// TODO: Could make cellId a constant?...
+		const cellId = generateUuid();
+		const webviewMessage: ICreationRequestMessage = {
+			type: 'html',
+			content: {
+				type: RenderOutputType.Extension,
+				outputId: id,
+				// TODO: Need metadata?
+				metadata: {},
+				output: {
+					mime: mimeType,
+					valueBytes: valueBytes.buffer,
+				},
+				// TODO: Get from message
+				allOutputs: [],
+			},
+			cellId,
+			outputId: id,
+			cellTop: 0,
+			outputOffset: 0,
+			left: 0,
+			requiredPreloads: [],
+			createOnIdle: true,
+		};
+		webview.postMessage(webviewMessage, transfer);
+
+		return new NotebookOutputWebview(id, cellId, runtime.runtimeMetadata.runtimeId, webview);
 	}
 
 	/**
@@ -305,7 +381,8 @@ window.onload = function() {
 	vscode.postMessage('${RENDER_COMPLETE}');
 };
 </script>`);
-		return new NotebookOutputWebview(id, runtime.runtimeMetadata.runtimeId, webview);
+		// TODO: Should this use an even simpler webview class?
+		return new NotebookOutputWebview(id, '', runtime.runtimeMetadata.runtimeId, webview);
 	}
 
 	/**
@@ -404,6 +481,6 @@ ${managerState}
 </script>
 </html>
 		`);
-		return new NotebookOutputWebview(id, runtime.runtimeMetadata.runtimeId, webview);
+		return new NotebookOutputWebview(id, '', runtime.runtimeMetadata.runtimeId, webview);
 	}
 }

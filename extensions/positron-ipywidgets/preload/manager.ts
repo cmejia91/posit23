@@ -71,7 +71,7 @@ export class PositronWidgetManager extends ManagerBase implements base.IWidgetMa
 				content: {
 					comm_id: message.comm_id,
 					target_name: message.target_name,
-					data: message.content,
+					data: message.data,
 				},
 				metadata: message.metadata,
 				// Stub the rest of the interface - these are not currently used by handle_comm_open.
@@ -130,8 +130,7 @@ export class PositronWidgetManager extends ManagerBase implements base.IWidgetMa
 	}
 
 	/**
-	 * Load a widget model or view class from a module.
-	 *
+	 * Load a class and return a promise to the loaded object.
 	 * @param className The name of the class.
 	 * @param moduleName The name of the module.
 	 * @param moduleVersion The version of the module.
@@ -146,10 +145,43 @@ export class PositronWidgetManager extends ManagerBase implements base.IWidgetMa
 	}
 
 	/**
-	 * Create a new comm in the runtime.
+	 * Create a comm which can be used for communication for a widget.
+	 *
+	 * If the data/metadata is passed in, open the comm before returning (i.e.,
+	 * send the comm_open message). If the data and metadata is undefined, we
+	 * want to reconstruct a comm that already exists in the kernel, so do not
+	 * open the comm by sending the comm_open message.
+	 *
+	 * @param comm_target_name Comm target name
+	 * @param model_id The comm id
+	 * @param data The initial data for the comm
+	 * @param metadata The metadata in the open message
 	 */
-	protected override async _create_comm(_comm_target_name: string, _model_id?: string | undefined, _data?: JSONObject | undefined, _metadata?: JSONObject | undefined, _buffers?: ArrayBuffer[] | ArrayBufferView[] | undefined): Promise<base.IClassicComm> {
-		throw new Error('Method not implemented.');
+	protected override async _create_comm(
+		comm_target_name: string,
+		model_id?: string | undefined,
+		data?: JSONObject | undefined,
+		metadata?: JSONObject | undefined,
+		_buffers?: ArrayBuffer[] | ArrayBufferView[] | undefined
+	): Promise<base.IClassicComm> {
+		if (!model_id) {
+			throw new Error('model_id is required to create a comm.');
+		}
+
+		const comm = new Comm(model_id, comm_target_name, this.messaging);
+
+		// Notify the kernel about the comm.
+		if (data || metadata) {
+			// TODO: Do we need to send buffers?
+			this.messaging.postMessage({
+				type: 'comm_open',
+				comm_id: model_id,
+				target_name: comm_target_name,
+				data: data,
+				metadata: metadata,
+			});
+		}
+		return comm;
 	}
 
 	/**
@@ -168,6 +200,10 @@ export class PositronWidgetManager extends ManagerBase implements base.IWidgetMa
 	 */
 	async display_view(view: base.DOMWidgetView, element: HTMLElement): Promise<void> {
 		LuminoWidget.Widget.attach(view.luminoWidget, element);
+	}
+
+	loadFromKernel(): Promise<void> {
+		return this._loadFromKernel();
 	}
 
 	dispose(): void {

@@ -76,7 +76,7 @@ export interface INotebookService {
 	getRenderers(): INotebookRendererInfo[];
 
 	// --- Start Positron ---
-	getPreferredRenderer(mimeType: string): INotebookRendererInfo | undefined;
+	getPreferredRenderer(mimeType: string, viewType?: string): INotebookRendererInfo | undefined;
 	getStaticPreloadsForExt(extensionId: ExtensionIdentifier): Promise<INotebookStaticPreloadInfo[]>;
 	// --- End Positron ---
 
