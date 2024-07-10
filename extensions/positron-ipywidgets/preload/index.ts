@@ -76,23 +76,24 @@ export async function activate(context: KernelPreloadContext): Promise<void> {
 	// Define the typed notebook preload messaging interface.
 	const messaging = new Messaging(context);
 
-	// Wait for the main thread to send the bundled stylesheet URI, then append it to the document.
-	// TODO: Change the message type to something more generic like 'initialize' or 'ready' or 'connected'?
+	// TODO: Should this block activation?
+	// Wait for the ipywidgets service to send the initialization message.
 	console.log('Preload: Waiting for init message');
 	await new Promise<void>((resolve) => {
 		const disposable = messaging.onDidReceiveMessage(message => {
 			console.log('Preload: received message:', message);
-			if (message.type === 'append_stylesheet') {
+			if (message.type === 'initialize_result') {
+				// Append the stylesheet to the document head.
 				const link = document.createElement('link');
 				link.rel = 'stylesheet';
-				link.href = message.href;
+				link.href = message.stylesheet_href;
 				document.head.appendChild(link);
 				disposable.dispose();
 				resolve();
 			}
 		});
 
-		messaging.postMessage({ type: 'ready' });
+		messaging.postMessage({ type: 'initialize_request' });
 	});
 
 	console.log('Preload: Positron IPyWidgets activated');

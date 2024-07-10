@@ -2,8 +2,6 @@
  *  Copyright (C) 2023-2024 Posit Software, PBC. All rights reserved.
  *  Licensed under the Elastic License 2.0. See LICENSE.txt for license information.
  *--------------------------------------------------------------------------------------------*/
-// TODO: Should we move this to workbench/services/positronIPyWidgets/browser/positronIPyWidgetsService.ts?
-
 import { Disposable, DisposableStore } from 'vs/base/common/lifecycle';
 import { LanguageRuntimeSessionMode, RuntimeOutputKind } from 'vs/workbench/services/languageRuntime/common/languageRuntimeService';
 import { ILanguageRuntimeSession, IRuntimeClientInstance, IRuntimeSessionService, RuntimeClientType } from 'vs/workbench/services/runtimeSession/common/runtimeSessionService';
@@ -61,7 +59,6 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 		});
 
 		// Attach to new sessions.
-		// TODO: Should we listen to onWillStartSession instead?
 		this._register(this._runtimeSessionService.onDidStartRuntime((session) => {
 			this.attachSession(session);
 		}));
@@ -242,11 +239,11 @@ class IPyWidgetsInstance extends Disposable {
 			});
 		}));
 
-		// Forward comm_open messages from the webview to the runtime.
+		// Handle messages from the webview.
 		this._register(this._messaging.onDidReceiveMessage(async (message) => {
 			switch (message.type) {
-				case 'ready': {
-					await this.handleReadyFromWebview();
+				case 'initialize_request': {
+					await this.sendInitializeResultToWebview();
 					break;
 				}
 				case 'comm_open':
@@ -254,6 +251,12 @@ class IPyWidgetsInstance extends Disposable {
 					break;
 			}
 		}));
+
+		// Notify the webview that we're ready - in case we initialized after the webview.
+		// Otherwise, we'll reply to its initialize_request message.
+		this.sendInitializeResultToWebview().catch((e) => {
+			this._logService.error(`Error sending ready message to webview: ${e.message}`);
+		});
 	}
 
 	private createClient(client: IRuntimeClientInstance<any, any>) {
@@ -285,7 +288,7 @@ class IPyWidgetsInstance extends Disposable {
 		}));
 	}
 
-	private async handleReadyFromWebview() {
+	private async sendInitializeResultToWebview() {
 		// Get the Positron IPyWidgets extension.
 		const extension = await this._extensionService.getExtension('vscode.positron-ipywidgets');
 
@@ -293,15 +296,15 @@ class IPyWidgetsInstance extends Disposable {
 			throw new Error('positron-ipywidgets extension not found');
 		}
 
-		// Get the URI of the bundled stylesheet.
+		// Get the URI of the bundled stylesheet, to send to the webview.
+		// TODO: Is there a way to determine this from inside the webview?
 		const styleUri = asWebviewUri(
 			extension.extensionLocation.with({
 				path: extension.extensionLocation.path + '/preload-out/index.css'
 			}));
 
-		// TODO: Rework
-		// Notify the webview to append the bundled widgets stylesheet.
-		this._messaging.postMessage({ type: 'append_stylesheet', href: styleUri.toString() });
+		// Send the initialize result message to the webview.
+		this._messaging.postMessage({ type: 'initialize_result', stylesheet_href: styleUri.toString() });
 	}
 
 	private async handleCommOpenFromWebview(message: ICommOpenFromWebview) {

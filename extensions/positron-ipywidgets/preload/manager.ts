@@ -173,7 +173,6 @@ export class PositronWidgetManager extends ManagerBase implements base.IWidgetMa
 
 		// Notify the kernel about the comm.
 		if (data || metadata) {
-			// TODO: Do we need to send buffers?
 			this.messaging.postMessage({
 				type: 'comm_open',
 				comm_id: model_id,

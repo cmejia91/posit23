@@ -160,9 +160,7 @@ export class Comm implements base.IClassicComm, Disposable {
 			channel: 'iopub',
 			header: {
 				date: '',
-				// TODO: Is msg_id used?
-				// msg_id: '',
-				msg_id: message.request_msg_id ?? '',
+				msg_id: '',
 				msg_type: 'comm_msg',
 				session: '',
 				username: '',
@@ -187,8 +185,7 @@ export class Comm implements base.IClassicComm, Disposable {
 					channel: 'iopub',
 					header: {
 						date: '',
-						// TODO: is msg_id needed?
-						msg_id: msgId,
+						msg_id: '',
 						msg_type: 'status',
 						session: '',
 						username: '',

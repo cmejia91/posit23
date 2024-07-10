@@ -27,23 +27,22 @@ export interface ICommOpenFromWebview {
 	metadata: unknown;
 }
 
-export interface IReady {
-	type: 'ready';
+export interface IInitializeRequestFromWebview {
+	type: 'initialize_request';
 }
 
 export type FromWebviewMessage = ICommCloseFromWebview |
 	ICommMessageFromWebview |
 	ICommOpenFromWebview |
-	IReady;
+	IInitializeRequestFromWebview;
 
 //
 // Messages to the webview.
 //
 
-// TODO: refactor to 'init' or something
-export interface IAppendStylesheet {
-	type: 'append_stylesheet';
-	href: string;
+export interface IInitializeResultToWebview {
+	type: 'initialize_result';
+	stylesheet_href: string;
 }
 
 export interface ICommCloseToWebview {
@@ -67,7 +66,7 @@ export interface ICommOpenToWebview {
 	metadata: unknown;
 }
 
-export type ToWebviewMessage = IAppendStylesheet |
+export type ToWebviewMessage = IInitializeResultToWebview |
 	ICommCloseToWebview |
 	ICommMessageToWebview |
 	ICommOpenToWebview;

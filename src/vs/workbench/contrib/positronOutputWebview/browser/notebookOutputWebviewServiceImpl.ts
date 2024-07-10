@@ -234,7 +234,6 @@ export class PositronNotebookOutputWebviewService implements IPositronNotebookOu
 	</style>
 </head>
 <body>
-We did it
 <div id='container'></div>
 <div id="_defaultColorPalatte"></div>
 <script type="module">${preloads}</script>
