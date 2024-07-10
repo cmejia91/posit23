@@ -113,7 +113,7 @@ export class IPyWidgetClientInstance extends Disposable {
 			});
 		} else {
 			// It's not a known RPC request, send a fire-and-forget message to the client.
-			this._client.sendMessage(message);
+			this._client.sendMessage(message.data);
 		}
 	}
 }
