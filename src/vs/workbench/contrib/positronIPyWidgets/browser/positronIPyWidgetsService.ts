@@ -10,13 +10,13 @@ import { ILanguageRuntimeSession, IRuntimeClientInstance, IRuntimeSessionService
 import { Emitter, Event } from 'vs/base/common/event';
 import { IPositronIPyWidgetsService } from 'vs/workbench/services/positronIPyWidgets/common/positronIPyWidgetsService';
 import { INotebookEditorService } from 'vs/workbench/contrib/notebook/browser/services/notebookEditorService';
-import { INotebookWebviewMessage } from 'vs/workbench/contrib/notebook/browser/notebookBrowser';
+import { INotebookEditor } from 'vs/workbench/contrib/notebook/browser/notebookBrowser';
 import { isEqual } from 'vs/base/common/resources';
 import { ILogService } from 'vs/platform/log/common/log';
 import { asWebviewUri } from 'vs/workbench/contrib/webview/common/webview';
 import { IExtensionService } from 'vs/workbench/services/extensions/common/extensions';
-import { FromWebviewMessage, ICommOpen, IIPyWidgetsMessage } from '../../../services/languageRuntime/common/positronIPyWidgetsWebviewMessages';
-import { IPositronNotebookOutputWebviewService } from 'vs/workbench/contrib/positronOutputWebview/browser/notebookOutputWebviewService';
+import { FromWebviewMessage, ICommOpenFromWebview, ToWebviewMessage } from '../../../services/languageRuntime/common/positronIPyWidgetsWebviewMessages';
+import { INotebookOutputWebview, IPositronNotebookOutputWebviewService } from 'vs/workbench/contrib/positronOutputWebview/browser/notebookOutputWebviewService';
 import { WebviewPlotClient } from 'vs/workbench/contrib/positronPlots/browser/webviewPlotClient';
 import { IIPyWidgetsWebviewMessaging, IPyWidgetClientInstance } from 'vs/workbench/services/languageRuntime/common/languageRuntimeIPyWidgetClient';
 
@@ -27,15 +27,25 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 	/** Needed for service branding in dependency injector. */
 	declare readonly _serviceBrand: undefined;
 
-	// TODO: Rename to "_iPyWidgetsNotebookInstancesBySessionId"?
-	private readonly _iPyWidgetsInstancesBySessionId = new Map<string, IPyWidgetsInstance>();
+	/** Map of notebook IPyWidgetsInstances keyed by notebook session ID. */
+	private readonly _notebookInstancesBySessionId = new Map<string, IPyWidgetsInstance>();
 
-	// TODO: Rename to "_iPyWidgetsConsoleInstancesBySessionId"?
-	private readonly _iPyWidgetsInstancesByMessageId = new Map<string, IPyWidgetsInstance>();
+	/** Map of console IPyWidgetsInstances keyed by the language runtime output message ID that initiated the instance. */
+	private readonly _consoleInstancesByMessageId = new Map<string, IPyWidgetsInstance>();
 
 	/** The emitter for the onDidCreatePlot event */
 	private readonly _onDidCreatePlot = new Emitter<WebviewPlotClient>();
 
+	/** Emitted when a new IPyWidgets webview plot is created. */
+	onDidCreatePlot: Event<WebviewPlotClient> = this._onDidCreatePlot.event;
+
+	/**
+	 * @param _runtimeSessionService The runtime session service.
+	 * @param _notebookEditorService The notebook editor service.
+	 * @param _notebookOutputWebviewService The notebook output webview service.
+	 * @param _logService The log service.
+	 * @param _extensionService The extension service.
+	 */
 	constructor(
 		@IRuntimeSessionService private _runtimeSessionService: IRuntimeSessionService,
 		@INotebookEditorService private _notebookEditorService: INotebookEditorService,
@@ -45,12 +55,12 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 	) {
 		super();
 
-		// Start ipywidgets instances for existing sessions.
+		// Attach to existing sessions.
 		this._runtimeSessionService.activeSessions.forEach(session => {
 			this.attachSession(session);
 		});
 
-		// Start ipywidgets instances for new sessions.
+		// Attach to new sessions.
 		// TODO: Should we listen to onWillStartSession instead?
 		this._register(this._runtimeSessionService.onDidStartRuntime((session) => {
 			this.attachSession(session);
@@ -58,87 +68,118 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 	}
 
 	private attachSession(session: ILanguageRuntimeSession) {
-		if (session.metadata.sessionMode === LanguageRuntimeSessionMode.Console) {
-			const disposableStore = new DisposableStore();
-
-			disposableStore.add(session.onDidReceiveRuntimeMessageOutput(async (message) => {
-				if (message.kind === RuntimeOutputKind.IPyWidget) {
-					console.log(message);
-					const webview = await this._notebookOutputWebviewService.createNotebookOutputWebview(
-						session, message);
-					if (webview) {
-						// TODO: Could/should we combine IPyWidgetsMessaging with IPyWidgetsInstance?
-						const iPyWidgetsInstance = new IPyWidgetsInstance(
-							session,
-							webview,
-							this._extensionService,
-							this._logService,
-						);
-						disposableStore.add(iPyWidgetsInstance);
-						// TODO: Is this the right key? How do we remove this when the webview/comm is closed?
-						this._iPyWidgetsInstancesByMessageId.set(
-							message.id,
-							iPyWidgetsInstance
-						);
-						const client = new WebviewPlotClient(webview, message);
-						this._onDidCreatePlot.fire(client);
-					}
-				}
-			}));
-
-			disposableStore.add(session.onDidEndSession((e) => {
-				disposableStore.dispose();
-			}));
-		} else if (session.metadata.sessionMode === LanguageRuntimeSessionMode.Notebook) {
-			// Find the session's notebook editor by its notebook URI.
-			const notebookEditor = this._notebookEditorService.listNotebookEditors().find(
-				(editor) => isEqual(session.metadata.notebookUri, editor.textModel?.uri));
-
-			if (!notebookEditor) {
-				this._logService.error(`Could not find a notebook editor for session '${session.sessionId}'`);
-				return;
-			}
-
-			// We found a matching notebook editor, start an ipywidgets instance.
-			this._logService.debug(`Found an existing notebook editor for session '${session.sessionId}, starting ipywidgets instance`);
-			const iPyWidgetsInstance = new IPyWidgetsInstance(
-				session,
-				notebookEditor,
-				this._extensionService,
-				this._logService,
-			);
-			this._iPyWidgetsInstancesBySessionId.set(
-				session.sessionId,
-				iPyWidgetsInstance
-			);
-
-			const disposableStore = new DisposableStore();
-			disposableStore.add(iPyWidgetsInstance);
-
-			// TODO: Does this ever fire?
-			// Dispose the instance when the model changes.
-			disposableStore.add(notebookEditor.onDidChangeModel((e) => {
-				if (isEqual(session.metadata.notebookUri, e?.uri)) {
-					return;
-				}
-				this._logService.debug(`Editor model changed for session '${session.sessionId}, disposing ipywidgets instance`);
-				this._iPyWidgetsInstancesBySessionId.delete(session.sessionId);
-				disposableStore.dispose();
-			}));
-
-			// Clean up when the notebook editor is removed.
-			disposableStore.add(this._notebookEditorService.onDidRemoveNotebookEditor((e) => {
-				if (e !== notebookEditor) {
-					return;
-				}
-				this._logService.debug(`Notebook editor removed for session '${session.sessionId}, disposing ipywidgets instance`);
-				this._iPyWidgetsInstancesBySessionId.delete(session.sessionId);
-				disposableStore.dispose();
-			}));
+		switch (session.metadata.sessionMode) {
+			case LanguageRuntimeSessionMode.Console:
+				this.attachConsoleSession(session);
+				break;
+			case LanguageRuntimeSessionMode.Notebook:
+				this.attachNotebookSession(session);
+				break;
 		}
 	}
 
-	onDidCreatePlot: Event<WebviewPlotClient> = this._onDidCreatePlot.event;
+	private attachConsoleSession(session: ILanguageRuntimeSession) {
+		const disposableStore = new DisposableStore();
+
+		disposableStore.add(session.onDidReceiveRuntimeMessageOutput(async (message) => {
+			// Only handle IPyWidget output messages.
+			if (message.kind !== RuntimeOutputKind.IPyWidget) {
+				return;
+			}
+
+			// Create a webview to display the widget.
+			const webview = await this._notebookOutputWebviewService.createNotebookOutputWebview(
+				session, message);
+
+			if (!webview) {
+				throw new Error(`Could not create webview for IPyWidget message: ${JSON.stringify(message)}`);
+			}
+
+			// TODO: Could/should we combine IPyWidgetsMessaging with IPyWidgetsInstance?
+			// Create the ipywidgets instance.
+			const ipywidgetsInstance = new IPyWidgetsInstance(
+				session,
+				webview,
+				this._extensionService,
+				this._logService,
+			);
+			this._consoleInstancesByMessageId.set(message.id, ipywidgetsInstance);
+			disposableStore.add(ipywidgetsInstance);
+
+			// Unregister the instance when the session is disposed.
+			disposableStore.add({
+				dispose: () => {
+					this._consoleInstancesByMessageId.delete(message.id);
+				}
+			});
+
+			// TODO: We probably need to dispose in more cases...
+
+			// Fire the onDidCreatePlot event.
+			const client = new WebviewPlotClient(webview, message);
+			this._onDidCreatePlot.fire(client);
+		}));
+
+		// Dispose when the session ends.
+		disposableStore.add(session.onDidEndSession((e) => {
+			disposableStore.dispose();
+		}));
+	}
+
+	private attachNotebookSession(session: ILanguageRuntimeSession) {
+		// Find the session's notebook editor by its notebook URI.
+		const notebookEditor = this._notebookEditorService.listNotebookEditors().find(
+			(editor) => isEqual(session.metadata.notebookUri, editor.textModel?.uri));
+
+		if (!notebookEditor) {
+			this._logService.error(`Could not find a notebook editor for session '${session.sessionId}'`);
+			return;
+		}
+
+		this._logService.debug(`Found an existing notebook editor for session '${session.sessionId}, starting ipywidgets instance`);
+
+		const disposableStore = new DisposableStore();
+
+		// We found a matching notebook editor, create an ipywidgets instance.
+		const ipywidgetsInstance = new IPyWidgetsInstance(
+			session,
+			notebookEditor,
+			this._extensionService,
+			this._logService,
+		);
+		this._notebookInstancesBySessionId.set(session.sessionId, ipywidgetsInstance);
+		disposableStore.add(ipywidgetsInstance);
+
+		// Unregister the instance when the session is disposed.
+		disposableStore.add({
+			dispose: () => {
+				this._notebookInstancesBySessionId.delete(session.sessionId);
+			},
+		});
+
+		// Dispose when the notebook text model changes.
+		disposableStore.add(notebookEditor.onDidChangeModel((e) => {
+			if (isEqual(session.metadata.notebookUri, e?.uri)) {
+				return;
+			}
+			this._logService.debug(`Editor model changed for session '${session.sessionId}, disposing ipywidgets instance`);
+			disposableStore.dispose();
+		}));
+
+		// Dispose when the notebook editor is removed.
+		disposableStore.add(this._notebookEditorService.onDidRemoveNotebookEditor((e) => {
+			if (e !== notebookEditor) {
+				return;
+			}
+			this._logService.debug(`Notebook editor removed for session '${session.sessionId}, disposing ipywidgets instance`);
+			disposableStore.dispose();
+		}));
+
+		// Dispose when the session ends.
+		disposableStore.add(session.onDidEndSession((e) => {
+			disposableStore.dispose();
+		}));
+	}
 
 	/**
 	 * Placeholder for service initialization.
@@ -149,26 +190,29 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 
 class IPyWidgetsInstance extends Disposable {
 
+	/** Map of IPyWidget runtime clients (aka comms), keyed by client ID. */
 	private readonly _clients = new Map<string, IPyWidgetClientInstance>();
 
+	/** The IPyWidgets webview messaging interface. */
 	private readonly _messaging: IIPyWidgetsWebviewMessaging;
 
 	/**
 	 * @param session The language runtime session.
-	 * @param editor The notebook editor.
+	 * @param notebookEditorOrWebview A notebook editor or output webview, used for communicating
+	 *  with the webview.
 	 * @param _extensionService The extension service.
 	 * @param _logService The log service.
 	 */
 	constructor(
 		private readonly _session: ILanguageRuntimeSession,
-		notebookMessaging: INotebookWebviewMessaging,
+		notebookEditorOrWebview: INotebookEditor | INotebookOutputWebview,
 		private readonly _extensionService: IExtensionService,
 		private readonly _logService: ILogService,
 	) {
 		super();
 
-		// Create the typed webview messaging interface.
-		this._messaging = new IPyWidgetsWebviewMessaging(notebookMessaging);
+		// Create the IPyWidgets webview messaging interface.
+		this._messaging = new IPyWidgetsWebviewMessaging(notebookEditorOrWebview);
 
 		// Configure existing widget clients.
 		_session.listClients(RuntimeClientType.IPyWidget).then((clients) => {
@@ -177,104 +221,130 @@ class IPyWidgetsInstance extends Disposable {
 			}
 		});
 
-		// Forward comm_open messages from the runtime to the notebook editor.
+		// Forward comm_open messages from the runtime to the webview.
 		this._register(_session.onDidCreateClientInstance(({ client, message }) => {
-			if (client.getClientType() === RuntimeClientType.IPyWidget ||
-				client.getClientType() === RuntimeClientType.IPyWidgetControl) {
-
-				this.createClient(client);
-
-				// Notify the notebook editor about the new client instance.
-				this._messaging.postMessage({
-					type: 'comm_open',
-					comm_id: client.getClientId(),
-					target_name: client.getClientType(),
-					data: message.data,
-					metadata: message.metadata,
-				});
+			// Only handle IPyWidget clients.
+			if (client.getClientType() !== RuntimeClientType.IPyWidget &&
+				client.getClientType() !== RuntimeClientType.IPyWidgetControl) {
+				return;
 			}
+
+			// Create and register the client.
+			this.createClient(client);
+
+			// Notify the webview about the new client instance.
+			this._messaging.postMessage({
+				type: 'comm_open',
+				comm_id: client.getClientId(),
+				target_name: client.getClientType(),
+				data: message.data,
+				metadata: message.metadata,
+			});
 		}));
 
-		// Forward comm_open messages from the notebook editor to the runtime.
+		// Forward comm_open messages from the webview to the runtime.
 		this._register(this._messaging.onDidReceiveMessage(async (message) => {
 			switch (message.type) {
 				case 'ready': {
-					this.handleWebviewReady();
+					await this.handleReadyFromWebview();
 					break;
 				}
 				case 'comm_open':
-					this.handleWebviewCommOpen(message);
+					this.handleCommOpenFromWebview(message);
 					break;
 			}
 		}));
 	}
 
 	private createClient(client: IRuntimeClientInstance<any, any>) {
+		// Determine the list of RPC methods by client type.
 		let rpcMethods: string[];
-		if (client.getClientType() === RuntimeClientType.IPyWidget) {
-			rpcMethods = ['update'];
-		} else if (client.getClientType() === RuntimeClientType.IPyWidgetControl) {
-			rpcMethods = ['request_states'];
-		} else {
-			throw new Error(`Unexpected client type: ${client.getClientType()}`);
+		switch (client.getClientType()) {
+			case RuntimeClientType.IPyWidget:
+				rpcMethods = ['update'];
+				break;
+			case RuntimeClientType.IPyWidgetControl:
+				rpcMethods = ['request_states'];
+				break;
+			default:
+				throw new Error(`Unexpected client type: ${client.getClientType()}`);
 		}
 
+		// Create the IPyWidget client.
 		const ipywidgetsClient = new IPyWidgetClientInstance(
 			client,
 			this._messaging,
 			this._logService,
 			rpcMethods,
 		);
+		this._clients.set(client.getClientId(), ipywidgetsClient);
 
+		// Unregister the client when it is closed.
 		this._register(ipywidgetsClient.onDidClose(() => {
 			this._clients.delete(client.getClientId());
 		}));
-
-		this._clients.set(client.getClientId(), ipywidgetsClient);
 	}
 
-	private handleWebviewReady() {
-		// Notify the editor to append the bundled widgets stylesheet.
-		this._extensionService.getExtension('vscode.positron-ipywidgets').then((extension) => {
-			if (!extension) {
-				throw new Error('positron-ipywidgets extension not found');
-			}
-			const styleUri = asWebviewUri(
-				extension.extensionLocation.with({
-					path: extension.extensionLocation.path + '/preload-out/index.css'
-				}));
-			this._messaging.postMessage({ type: 'append_stylesheet', href: styleUri.toString() });
-		});
-	}
+	private async handleReadyFromWebview() {
+		// Get the Positron IPyWidgets extension.
+		const extension = await this._extensionService.getExtension('vscode.positron-ipywidgets');
 
-	private async handleWebviewCommOpen(message: ICommOpen) {
-		if (message.target_name === RuntimeClientType.IPyWidgetControl) {
-			const client = await this._session.createClient(
-				RuntimeClientType.IPyWidgetControl, message.data, message.metadata, message.comm_id);
-			this.createClient(client);
+		if (!extension) {
+			throw new Error('positron-ipywidgets extension not found');
 		}
+
+		// Get the URI of the bundled stylesheet.
+		const styleUri = asWebviewUri(
+			extension.extensionLocation.with({
+				path: extension.extensionLocation.path + '/preload-out/index.css'
+			}));
+
+		// TODO: Rework
+		// Notify the webview to append the bundled widgets stylesheet.
+		this._messaging.postMessage({ type: 'append_stylesheet', href: styleUri.toString() });
+	}
+
+	private async handleCommOpenFromWebview(message: ICommOpenFromWebview) {
+		// Only handle IPyWidget control clients.
+		if (message.target_name !== RuntimeClientType.IPyWidgetControl) {
+			return;
+		}
+
+		// Create the client.
+		const client = await this._session.createClient(
+			RuntimeClientType.IPyWidgetControl, message.data, message.metadata, message.comm_id);
+		this.createClient(client);
 	}
 }
 
-interface INotebookWebviewMessaging {
-	postMessage(message: any): void;
-	onDidReceiveMessage: Event<INotebookWebviewMessage>;
-}
-
+/**
+ * IPyWidgetsWebviewMessaging is used to communicate with an IPyWidgets webview.
+ */
 class IPyWidgetsWebviewMessaging extends Disposable implements IIPyWidgetsWebviewMessaging {
 	private readonly _messageEmitter = new Emitter<FromWebviewMessage>();
 
+	/** Emitted when a message is received from the webview. */
 	onDidReceiveMessage = this._messageEmitter.event;
 
-	constructor(private readonly _messaging: INotebookWebviewMessaging) {
+	/**
+	 * @param _notebookEditorOrWebview A notebook editor or output webview, used for communicating
+	 *  with the webview.
+	 */
+	constructor(private readonly _notebookEditorOrWebview: INotebookEditor | INotebookOutputWebview) {
 		super();
 
-		this._register(_messaging.onDidReceiveMessage((event) => {
+		// Forward messages from the webview.
+		this._register(_notebookEditorOrWebview.onDidReceiveMessage((event) => {
 			this._messageEmitter.fire(event.message as FromWebviewMessage);
 		}));
 	}
 
-	postMessage(message: IIPyWidgetsMessage) {
-		this._messaging.postMessage(message);
+	/**
+	 * Send a message to the webview.
+	 *
+	 * @param message The message.
+	 */
+	postMessage(message: ToWebviewMessage) {
+		this._notebookEditorOrWebview.postMessage(message);
 	}
 }

@@ -64,7 +64,7 @@ export class Comm implements base.IClassicComm, Disposable {
 	 * @returns The message ID.
 	 */
 	send(
-		data: any,
+		data: JSONValue,
 		callbacks?: base.ICallbacks,
 		metadata?: JSONObject,
 		buffers?: ArrayBuffer[] | ArrayBufferView[]
@@ -149,12 +149,12 @@ export class Comm implements base.IClassicComm, Disposable {
 	 *
 	 * @param message The message.
 	 */
-	private handle_msg(message: WebviewMessage.ICommMessage): void {
+	private handle_msg(message: WebviewMessage.ICommMessageToWebview): void {
 		console.log('Comm.handle_msg', message);
 		this._on_msg?.({
 			content: {
 				comm_id: this.comm_id,
-				data: message.data,
+				data: message.data as JSONObject,
 			},
 			// Stub the rest of the interface - these are not currently used by widget libraries.
 			channel: 'iopub',
@@ -162,7 +162,7 @@ export class Comm implements base.IClassicComm, Disposable {
 				date: '',
 				// TODO: Is msg_id used?
 				// msg_id: '',
-				msg_id: message.msg_id ?? '',
+				msg_id: message.request_msg_id ?? '',
 				msg_type: 'comm_msg',
 				session: '',
 				username: '',
@@ -173,7 +173,7 @@ export class Comm implements base.IClassicComm, Disposable {
 		});
 
 		// Simulate an 'idle' status message after an RPC response is received from the runtime.
-		const msgId = message.msg_id;
+		const msgId = message.request_msg_id;
 		if (msgId) {
 			// It's an RPC response, call the callbacks.
 			const callbacks = this._callbacks.get(msgId);
@@ -206,7 +206,7 @@ export class Comm implements base.IClassicComm, Disposable {
 	 *
 	 * @param message The close message.
 	 */
-	private handle_close(message: WebviewMessage.ICommClose): void {
+	private handle_close(message: WebviewMessage.ICommCloseToWebview): void {
 		console.log('Comm.handle_close', message);
 		this._on_close?.({
 			content: {

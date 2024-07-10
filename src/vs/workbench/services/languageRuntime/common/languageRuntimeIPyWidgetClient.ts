@@ -6,19 +6,33 @@
 import { Disposable } from 'vs/base/common/lifecycle';
 import { Emitter, Event } from 'vs/base/common/event';
 import { IRuntimeClientInstance, RuntimeClientState } from 'vs/workbench/services/languageRuntime/common/languageRuntimeClientInstance';
-import { FromWebviewMessage, ICommMessage, IIPyWidgetsMessage } from 'vs/workbench/services/languageRuntime/common/positronIPyWidgetsWebviewMessages';
+import { FromWebviewMessage, ICommMessageFromWebview, ToWebviewMessage } from 'vs/workbench/services/languageRuntime/common/positronIPyWidgetsWebviewMessages';
 import { ILogService } from 'vs/platform/log/common/log';
 
+/**
+ * Interface for communicating with an IPyWidgets webview.
+ */
 export interface IIPyWidgetsWebviewMessaging {
 	onDidReceiveMessage: Event<FromWebviewMessage>;
-	postMessage(message: IIPyWidgetsMessage): void;
+	postMessage(message: ToWebviewMessage): void;
 }
 
+/**
+ * An IPyWidgetClientInstance is responsible for routing messages to/from an IPyWidgets webview and a runtime client.
+*/
 export class IPyWidgetClientInstance extends Disposable {
 	private readonly _closeEmitter = new Emitter<void>();
 
+	/** Emitted when the runtime client is closed. */
 	onDidClose = this._closeEmitter.event;
 
+	/**
+	 * @param _client The wrapped runtime client instance.
+	 * @param _messaging The IPyWidgets webview messaging interface.
+	 * @param _logService The log service.
+	 * @param _rpcMethods A list of methods that should be treated as RPCs. Other methods will be
+	 *   sent as fire-and-forget messages.
+	 */
 	constructor(
 		private readonly _client: IRuntimeClientInstance<any, any>,
 		private readonly _messaging: IIPyWidgetsWebviewMessaging,
@@ -27,7 +41,7 @@ export class IPyWidgetClientInstance extends Disposable {
 	) {
 		super();
 
-		// Forward messages from the notebook editor to the client.
+		// Forward messages from the webview to the runtime client.
 		this._register(_messaging.onDidReceiveMessage(async (message) => {
 			// Only handle messages for this client.
 			if (!('comm_id' in message) || message.comm_id !== this._client.getClientId()) {
@@ -40,14 +54,14 @@ export class IPyWidgetClientInstance extends Disposable {
 					break;
 				default:
 					this._logService.warn(
-						`Unhandled message from notebook for client ${this._client.getClientId()}: `
+						`Unhandled message from webview for client ${this._client.getClientId()}: `
 						+ JSON.stringify(message)
 					);
 					break;
 			}
 		}));
 
-		// Forward messages from the client to the notebook editor.
+		// Forward messages from the runtime client to the webview.
 		this._register(_client.onDidReceiveData(data => {
 			this._logService.debug('RECV comm_msg:', data);
 
@@ -61,14 +75,14 @@ export class IPyWidgetClientInstance extends Disposable {
 					break;
 				default:
 					this._logService.warn(
-						`Unhandled message from client ${this._client.getClientId()} for notebook: `
+						`Unhandled message from client ${this._client.getClientId()} for webview: `
 						+ JSON.stringify(data)
 					);
 					break;
 			}
 		}));
 
-		// If the client is closed, emit the close event.
+		// When the client is closed, notify the webview and emit the close event.
 		const stateChangeEvent = Event.fromObservable(_client.clientState);
 		this._register(stateChangeEvent(state => {
 			if (state === RuntimeClientState.Closed) {
@@ -81,27 +95,24 @@ export class IPyWidgetClientInstance extends Disposable {
 		}));
 	}
 
-	private async handleCommMessage(message: ICommMessage) {
-		// TODO: If we do separate messages for FromWebview and ToWebview we could simplify this.
-		const msgId = message.msg_id;
-		const method = message.data.method;
+	private async handleCommMessage(message: ICommMessageFromWebview) {
+		const data = message.data as any;
 		if (
-			msgId !== undefined &&
-			method !== undefined &&
-			this._rpcMethods.includes(method)) {
+			data.method !== undefined &&
+			this._rpcMethods.includes(data.method)) {
 			// It's a known RPC request, perform the RPC with the client.
-			const reply = await this._client.performRpc(message.data, 5000);
+			const reply = await this._client.performRpc(data, 5000);
 
-			// Forward the output to the notebook editor.
+			// Forward the output to the webview.
 			this._logService.debug('RECV comm_msg:', reply);
 			this._messaging.postMessage({
 				type: 'comm_msg',
 				comm_id: this._client.getClientId(),
 				data: reply,
-				msg_id: msgId,
+				request_msg_id: message.msg_id,
 			});
 		} else {
-			// Send a fire-and-forget message to the client.
+			// It's not a known RPC request, send a fire-and-forget message to the client.
 			this._client.sendMessage(message);
 		}
 	}

@@ -64,7 +64,7 @@ export class PositronWidgetManager extends ManagerBase implements base.IWidgetMa
 		}));
 	}
 
-	private async _handle_comm_open(message: WebviewMessage.ICommOpen): Promise<void> {
+	private async _handle_comm_open(message: WebviewMessage.ICommOpenToWebview): Promise<void> {
 		const comm = new Comm(message.comm_id, message.target_name, this.messaging);
 		await this.handle_comm_open(
 			comm,
@@ -72,9 +72,9 @@ export class PositronWidgetManager extends ManagerBase implements base.IWidgetMa
 				content: {
 					comm_id: message.comm_id,
 					target_name: message.target_name,
-					data: message.data,
+					data: message.data as JSONObject,
 				},
-				metadata: message.metadata,
+				metadata: message.metadata as JSONObject,
 				// Stub the rest of the interface - these are not currently used by handle_comm_open.
 				channel: 'iopub',
 				header: {

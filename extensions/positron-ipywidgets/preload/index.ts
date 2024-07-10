@@ -56,7 +56,7 @@ export class Messaging {
 	 * @param listener The listener to register.
 	 * @returns A disposable that can be used to unregister the listener.
 	 */
-	onDidReceiveMessage(listener: (e: WebviewMessage.IIPyWidgetsMessage) => any): Disposable {
+	onDidReceiveMessage(listener: (e: WebviewMessage.ToWebviewMessage) => any): Disposable {
 		return this._context.onDidReceiveKernelMessage(listener as any);
 	}
 }
