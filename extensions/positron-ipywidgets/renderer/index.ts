@@ -9,6 +9,7 @@ import { IWidgetManager, DOMWidgetView } from '@jupyter-widgets/base';
 interface IPositronWidgetManager extends IWidgetManager {
 	display_view(view: DOMWidgetView, element: HTMLElement): Promise<void>;
 	loadFromKernel(): Promise<void>;
+	ready: Promise<void>;
 }
 
 export const activate: ActivationFunction = async (_context) => {
@@ -20,8 +21,8 @@ export const activate: ActivationFunction = async (_context) => {
 		async renderOutputItem(outputItem, element, _signal) {
 			const widgetData = outputItem.json();
 
-			// TODO: Await for kernel connected message or something here?
-			// await manager.waitForKernel();
+			// Wait for the widget manager to initialize.
+			await manager.ready;
 			console.log('Renderer: rendering output item', widgetData, element);
 
 			// Check if the widget's comm exists in the manager.

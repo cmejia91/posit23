@@ -49,23 +49,45 @@ function moduleNameToCDNUrl(moduleName: string, moduleVersion: string): string {
 export class PositronWidgetManager extends ManagerBase implements base.IWidgetManager, Disposable {
 	private _disposables: Disposable[] = [];
 
+	readonly ready: Promise<void>;
+
 	constructor(
-		private readonly messaging: Messaging,
+		private readonly _messaging: Messaging,
 	) {
 		super();
 
 		// Handle messages from the runtime.
-		this._disposables.push(messaging.onDidReceiveMessage(async (message) => {
+		this._disposables.push(_messaging.onDidReceiveMessage(async (message) => {
 			switch (message.type) {
 				case 'comm_open':
 					await this._handle_comm_open(message);
 					break;
 			}
 		}));
+
+		// Promise that resolves when the Positron IPyWidgets instance sends the initialize_result message.
+		this.ready = new Promise<void>((resolve) => {
+			console.log('Preload: Waiting for init message');
+			const disposable = this._messaging.onDidReceiveMessage(message => {
+				if (message.type === 'initialize_result') {
+					// Append the stylesheet to the document head.
+					const link = document.createElement('link');
+					link.rel = 'stylesheet';
+					link.href = message.stylesheet_href;
+					document.head.appendChild(link);
+					disposable.dispose();
+					console.log('Preload: Positron IPyWidgets activated');
+					resolve();
+				}
+			});
+		});
+
+		// Request initialization from the Positron IPyWidgets instance.
+		this._messaging.postMessage({ type: 'initialize_request' });
 	}
 
 	private async _handle_comm_open(message: WebviewMessage.ICommOpenToWebview): Promise<void> {
-		const comm = new Comm(message.comm_id, message.target_name, this.messaging);
+		const comm = new Comm(message.comm_id, message.target_name, this._messaging);
 		await this.handle_comm_open(
 			comm,
 			{
@@ -169,11 +191,11 @@ export class PositronWidgetManager extends ManagerBase implements base.IWidgetMa
 			throw new Error('model_id is required to create a comm.');
 		}
 
-		const comm = new Comm(model_id, comm_target_name, this.messaging);
+		const comm = new Comm(model_id, comm_target_name, this._messaging);
 
 		// Notify the kernel about the comm.
 		if (data || metadata) {
-			this.messaging.postMessage({
+			this._messaging.postMessage({
 				type: 'comm_open',
 				comm_id: model_id,
 				target_name: comm_target_name,
@@ -200,6 +222,31 @@ export class PositronWidgetManager extends ManagerBase implements base.IWidgetMa
 	 */
 	async display_view(view: base.DOMWidgetView, element: HTMLElement): Promise<void> {
 		LuminoWidget.Widget.attach(view.luminoWidget, element);
+	}
+
+	async wait(): Promise<void> {
+		// TODO: Should this block activation?
+		// Wait for the ipywidgets service to send the initialization message.
+		console.log('Preload: Waiting for init message');
+		await new Promise<void>((resolve) => {
+			const disposable = this._messaging.onDidReceiveMessage(message => {
+				console.log('Preload: received message:', message);
+				if (message.type === 'initialize_result') {
+					// Append the stylesheet to the document head.
+					const link = document.createElement('link');
+					link.rel = 'stylesheet';
+					link.href = message.stylesheet_href;
+					document.head.appendChild(link);
+					disposable.dispose();
+					resolve();
+				}
+			});
+
+			this._messaging.postMessage({ type: 'initialize_request' });
+		});
+
+		console.log('Preload: Positron IPyWidgets activated');
+
 	}
 
 	loadFromKernel(): Promise<void> {

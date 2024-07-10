@@ -76,28 +76,6 @@ export async function activate(context: KernelPreloadContext): Promise<void> {
 	// Define the typed notebook preload messaging interface.
 	const messaging = new Messaging(context);
 
-	// TODO: Should this block activation?
-	// Wait for the ipywidgets service to send the initialization message.
-	console.log('Preload: Waiting for init message');
-	await new Promise<void>((resolve) => {
-		const disposable = messaging.onDidReceiveMessage(message => {
-			console.log('Preload: received message:', message);
-			if (message.type === 'initialize_result') {
-				// Append the stylesheet to the document head.
-				const link = document.createElement('link');
-				link.rel = 'stylesheet';
-				link.href = message.stylesheet_href;
-				document.head.appendChild(link);
-				disposable.dispose();
-				resolve();
-			}
-		});
-
-		messaging.postMessage({ type: 'initialize_request' });
-	});
-
-	console.log('Preload: Positron IPyWidgets activated');
-
 	// Attach the widget manager to the window object so it can be accessed by the notebook renderer.
 	const manager = new PositronWidgetManager(messaging);
 	(window as any).positronIPyWidgetManager = manager;
