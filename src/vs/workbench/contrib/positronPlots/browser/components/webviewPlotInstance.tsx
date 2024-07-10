@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as React from 'react';
-import { useEffect } from 'react'; // eslint-disable-line no-duplicate-imports
+import { CSSProperties, useEffect } from 'react'; // eslint-disable-line no-duplicate-imports
 import { WebviewPlotClient } from 'vs/workbench/contrib/positronPlots/browser/webviewPlotClient';
 
 /**
@@ -14,6 +14,7 @@ interface WebviewPlotInstanceProps {
 	width: number;
 	height: number;
 	plotClient: WebviewPlotClient;
+	visible: boolean;
 }
 
 /**
@@ -29,15 +30,19 @@ export const WebviewPlotInstance = (props: WebviewPlotInstanceProps) => {
 	useEffect(() => {
 		const client = props.plotClient;
 		client.claim(this);
-		if (webviewRef.current) {
-			client.layoutWebviewOverElement(webviewRef.current);
-		}
 		return () => {
 			client.release(this);
 		};
-	});
+	}, [props.plotClient]);
 
-	const style = {
+	useEffect(() => {
+		console.log('layoutWebviewOverElement', props.width, props.height, props.visible);
+		if (webviewRef.current) {
+			props.plotClient.layoutWebviewOverElement(webviewRef.current);
+		}
+	}, [props.plotClient, props.width, props.height, props.visible]);
+
+	const style: CSSProperties = {
 		width: `${props.width}px`,
 		height: `${props.height}px`,
 	};
