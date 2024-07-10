@@ -3,7 +3,7 @@
  *  Licensed under the Elastic License 2.0. See LICENSE.txt for license information.
  *--------------------------------------------------------------------------------------------*/
 import { Disposable, DisposableStore } from 'vs/base/common/lifecycle';
-import { LanguageRuntimeSessionMode, RuntimeOutputKind } from 'vs/workbench/services/languageRuntime/common/languageRuntimeService';
+import { LanguageRuntimeSessionMode, RuntimeOutputKind, RuntimeState } from 'vs/workbench/services/languageRuntime/common/languageRuntimeService';
 import { ILanguageRuntimeSession, IRuntimeClientInstance, IRuntimeSessionService, RuntimeClientType } from 'vs/workbench/services/runtimeSession/common/runtimeSessionService';
 import { Emitter, Event } from 'vs/base/common/event';
 import { IPositronIPyWidgetsService } from 'vs/workbench/services/positronIPyWidgets/common/positronIPyWidgetsService';
@@ -59,8 +59,8 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 		});
 
 		// Attach to new sessions.
-		this._register(this._runtimeSessionService.onDidStartRuntime((session) => {
-			this.attachSession(session);
+		this._register(this._runtimeSessionService.onWillStartSession((event) => {
+			this.attachSession(event.session);
 		}));
 	}
 
@@ -92,7 +92,6 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 				throw new Error(`Could not create webview for IPyWidget message: ${JSON.stringify(message)}`);
 			}
 
-			// TODO: Could/should we combine IPyWidgetsMessaging with IPyWidgetsInstance?
 			// Create the ipywidgets instance.
 			const ipywidgetsInstance = new IPyWidgetsInstance(
 				session,
@@ -212,11 +211,13 @@ class IPyWidgetsInstance extends Disposable {
 		this._messaging = new IPyWidgetsWebviewMessaging(notebookEditorOrWebview);
 
 		// Configure existing widget clients.
+		if (_session.getRuntimeState() !== RuntimeState.Uninitialized) {
 		_session.listClients(RuntimeClientType.IPyWidget).then((clients) => {
 			for (const client of clients) {
 				this.createClient(client);
 			}
 		});
+		}
 
 		// Forward comm_open messages from the runtime to the webview.
 		this._register(_session.onDidCreateClientInstance(({ client, message }) => {
