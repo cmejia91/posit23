@@ -99,15 +99,35 @@ export class PositronNotebookOutputWebviewService implements IPositronNotebookOu
 			isBuiltin: renderer.isBuiltin
 		}];
 
-		// Get info for the required preload scripts.
-		const preloadsInfo = [
-			...await this._notebookService.getStaticPreloadsForExt(renderer.extensionId),
-		];
-		// If a view type is specified, add its preloads.
-		// For example, the 'jupyter-notebook' view type has preloads that include dependencies
-		// like RequireJS.
-		if (viewType) {
-			preloadsInfo.push(...this._notebookService.getStaticPreloads(viewType));
+		// Get the required preloads for the renderer.
+		const preloadsInfo = await this._notebookService.getStaticPreloadsForExt(renderer.extensionId);
+
+		// TODO(seem): This is a hack to support IPyWidgets.
+		//             If the view type is 'jupyter-notebook', we manually find the specific preload
+		//             that includes RequireJS and jQuery, using its extension ID and entrypoint.
+		//             We don't want to also bundle those in our own preload since both will load
+		//             in an actual notebook webview.
+		//             We should find a better way to handle this.
+		if (viewType === 'jupyter-notebook') {
+			// Get the Jupyter renderers extension.
+			const jupyterRenderers = await this._extensionService.getExtension('ms-toolsai.jupyter-renderers');
+			if (!jupyterRenderers) {
+				throw new Error('ms-toolsai.jupyter-renderers extension not found');
+			}
+
+			// Get the Jupyter renderers extension's preloads.
+			const jupyterNotebookPreloadsInfo = await this._notebookService.getStaticPreloadsForExt(jupyterRenderers.identifier);
+
+			// Find the preload that bundles RequireJS and jQuery.
+			const requireJsAndJQueryPreloadInfo = jupyterNotebookPreloadsInfo.find(
+				preload => preload.entrypoint.fsPath.endsWith('client_renderer/preload.js'));
+
+			if (!requireJsAndJQueryPreloadInfo) {
+				throw new Error('RequireJS and jQuery preload info not found');
+			}
+
+			// Add the RequireJS and JQuery preload.
+			preloadsInfo.push(requireJsAndJQueryPreloadInfo);
 		}
 
 		// Format preloads for the preload script generator.
