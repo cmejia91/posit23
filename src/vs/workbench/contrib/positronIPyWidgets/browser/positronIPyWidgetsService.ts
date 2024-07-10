@@ -86,7 +86,7 @@ export class PositronIPyWidgetsService extends Disposable implements IPositronIP
 
 			// Create a webview to display the widget.
 			const webview = await this._notebookOutputWebviewService.createNotebookOutputWebview(
-				session, message);
+				session, message, 'jupyter-notebook');
 
 			if (!webview) {
 				throw new Error(`Could not create webview for IPyWidget message: ${JSON.stringify(message)}`);
@@ -212,11 +212,11 @@ class IPyWidgetsInstance extends Disposable {
 
 		// Configure existing widget clients.
 		if (_session.getRuntimeState() !== RuntimeState.Uninitialized) {
-		_session.listClients(RuntimeClientType.IPyWidget).then((clients) => {
-			for (const client of clients) {
-				this.createClient(client);
-			}
-		});
+			_session.listClients(RuntimeClientType.IPyWidget).then((clients) => {
+				for (const client of clients) {
+					this.createClient(client);
+				}
+			});
 		}
 
 		// Forward comm_open messages from the runtime to the webview.
