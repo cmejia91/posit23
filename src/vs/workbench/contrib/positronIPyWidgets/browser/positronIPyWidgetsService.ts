@@ -15,10 +15,10 @@ import { isEqual } from 'vs/base/common/resources';
 import { ILogService } from 'vs/platform/log/common/log';
 import { asWebviewUri } from 'vs/workbench/contrib/webview/common/webview';
 import { IExtensionService } from 'vs/workbench/services/extensions/common/extensions';
-import { ICommOpen, IIPyWidgetsMessage, IIPyWidgetsMessaging as IIPyWidgetsWebviewMessaging, IReady } from '../../../services/languageRuntime/common/positronIPyWidgetsMessaging';
+import { FromWebviewMessage, ICommOpen, IIPyWidgetsMessage } from '../../../services/languageRuntime/common/positronIPyWidgetsWebviewMessages';
 import { IPositronNotebookOutputWebviewService } from 'vs/workbench/contrib/positronOutputWebview/browser/notebookOutputWebviewService';
 import { WebviewPlotClient } from 'vs/workbench/contrib/positronPlots/browser/webviewPlotClient';
-import { IPyWidgetClientInstance } from 'vs/workbench/services/languageRuntime/common/languageRuntimeIPyWidgetClient';
+import { IIPyWidgetsWebviewMessaging, IPyWidgetClientInstance } from 'vs/workbench/services/languageRuntime/common/languageRuntimeIPyWidgetClient';
 
 /**
  * The PositronIPyWidgetsService is responsible for managing IPyWidgetsInstances.
@@ -262,7 +262,7 @@ interface INotebookWebviewMessaging {
 }
 
 class IPyWidgetsWebviewMessaging extends Disposable implements IIPyWidgetsWebviewMessaging {
-	private readonly _messageEmitter = new Emitter<IIPyWidgetsMessage>();
+	private readonly _messageEmitter = new Emitter<FromWebviewMessage>();
 
 	onDidReceiveMessage = this._messageEmitter.event;
 
@@ -270,7 +270,7 @@ class IPyWidgetsWebviewMessaging extends Disposable implements IIPyWidgetsWebvie
 		super();
 
 		this._register(_messaging.onDidReceiveMessage((event) => {
-			this._messageEmitter.fire(event.message as IIPyWidgetsMessage);
+			this._messageEmitter.fire(event.message as FromWebviewMessage);
 		}));
 	}
 

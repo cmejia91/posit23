@@ -6,8 +6,9 @@
 import * as base from '@jupyter-widgets/base';
 import { JSONObject, JSONValue, UUID } from '@lumino/coreutils';
 import { Disposable } from 'vscode-notebook-renderer/events';
-import type { IIPyWidgetsMessaging, ICommMessage, ICommClose } from '../../../src/vs/workbench/services/languageRuntime/common/positronIPyWidgetsMessaging';
+import type * as WebviewMessage from '../../../src/vs/workbench/services/languageRuntime/common/positronIPyWidgetsWebviewMessages';
 import { KernelMessage } from '@jupyterlab/services';
+import { Messaging } from '.';
 
 /**
  * An IClassicComm that interfaces with the main thread Positron IPyWidgets service.
@@ -26,7 +27,7 @@ export class Comm implements base.IClassicComm, Disposable {
 	constructor(
 		readonly comm_id: string,
 		readonly target_name: string,
-		private readonly messaging: IIPyWidgetsMessaging,
+		private readonly messaging: Messaging,
 	) {
 		// Handle messages from the runtime.
 		this._disposables.push(messaging.onDidReceiveMessage(message => {
@@ -148,7 +149,7 @@ export class Comm implements base.IClassicComm, Disposable {
 	 *
 	 * @param message The message.
 	 */
-	private handle_msg(message: ICommMessage): void {
+	private handle_msg(message: WebviewMessage.ICommMessage): void {
 		console.log('Comm.handle_msg', message);
 		this._on_msg?.({
 			content: {
@@ -159,15 +160,15 @@ export class Comm implements base.IClassicComm, Disposable {
 			channel: 'iopub',
 			header: {
 				date: '',
+				// TODO: Is msg_id used?
+				// msg_id: '',
 				msg_id: message.msg_id ?? '',
-				msg_type: message.type,
+				msg_type: 'comm_msg',
 				session: '',
 				username: '',
 				version: '',
 			},
-			parent_header: {
-				// msg_id: message.msg_id
-			},
+			parent_header: {},
 			metadata: {},
 		});
 
@@ -186,6 +187,7 @@ export class Comm implements base.IClassicComm, Disposable {
 					channel: 'iopub',
 					header: {
 						date: '',
+						// TODO: is msg_id needed?
 						msg_id: msgId,
 						msg_type: 'status',
 						session: '',
@@ -204,7 +206,7 @@ export class Comm implements base.IClassicComm, Disposable {
 	 *
 	 * @param message The close message.
 	 */
-	private handle_close(message: ICommClose): void {
+	private handle_close(message: WebviewMessage.ICommClose): void {
 		console.log('Comm.handle_close', message);
 		this._on_close?.({
 			content: {

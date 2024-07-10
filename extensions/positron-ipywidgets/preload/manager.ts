@@ -7,9 +7,10 @@ import * as base from '@jupyter-widgets/base';
 import { ManagerBase } from '@jupyter-widgets/base-manager';
 import { JSONObject } from '@lumino/coreutils';
 import * as LuminoWidget from '@lumino/widgets';
-import { IIPyWidgetsMessaging, ICommOpen } from '../../../src/vs/workbench/contrib/positronIPyWidgets/browser/positronIPyWidgetsMessaging';
+import type * as WebviewMessage from '../../../src/vs/workbench/services/languageRuntime/common/positronIPyWidgetsWebviewMessages';
 import { Comm } from './comm';
 import { Disposable } from 'vscode-notebook-renderer/events';
+import { Messaging } from '.';
 
 // TODO: Should we support configurable CDN?
 //       This is the default CDN in @jupyter-widgets/html-manager/libembed-amd.
@@ -49,7 +50,7 @@ export class PositronWidgetManager extends ManagerBase implements base.IWidgetMa
 	private _disposables: Disposable[] = [];
 
 	constructor(
-		private readonly messaging: IIPyWidgetsMessaging
+		private readonly messaging: Messaging,
 	) {
 		super();
 
@@ -63,7 +64,7 @@ export class PositronWidgetManager extends ManagerBase implements base.IWidgetMa
 		}));
 	}
 
-	private async _handle_comm_open(message: ICommOpen): Promise<void> {
+	private async _handle_comm_open(message: WebviewMessage.ICommOpen): Promise<void> {
 		const comm = new Comm(message.comm_id, message.target_name, this.messaging);
 		await this.handle_comm_open(
 			comm,

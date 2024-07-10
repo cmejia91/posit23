@@ -7,7 +7,7 @@ import * as base from '@jupyter-widgets/base';
 import * as controls from '@jupyter-widgets/controls';
 import * as output from '@jupyter-widgets/output';
 import { Disposable, VSCodeEvent } from 'vscode-notebook-renderer/events';
-import { IIPyWidgetsMessage, IIPyWidgetsMessaging } from '../../../src/vs/workbench/contrib/positronIPyWidgets/browser/positronIPyWidgetsMessaging';
+import type * as WebviewMessage from '../../../src/vs/workbench/services/languageRuntime/common/positronIPyWidgetsWebviewMessages';
 import { PositronWidgetManager } from './manager';
 
 // Import CSS files required by the bundled widget packages.
@@ -38,7 +38,7 @@ interface KernelPreloadContext {
 /**
  * Typed messaging interface between the preload script and the main thread Positron IPyWidgets service.
  */
-class Messaging implements IIPyWidgetsMessaging {
+export class Messaging {
 	constructor(private readonly _context: KernelPreloadContext) { }
 
 	/**
@@ -46,7 +46,7 @@ class Messaging implements IIPyWidgetsMessaging {
 	 *
 	 * @param message The message to send to the main thread.
 	 */
-	postMessage(message: IIPyWidgetsMessage): void {
+	postMessage(message: WebviewMessage.FromWebviewMessage): void {
 		this._context.postKernelMessage(message);
 	}
 
@@ -56,7 +56,7 @@ class Messaging implements IIPyWidgetsMessaging {
 	 * @param listener The listener to register.
 	 * @returns A disposable that can be used to unregister the listener.
 	 */
-	onDidReceiveMessage(listener: (e: IIPyWidgetsMessage) => any): Disposable {
+	onDidReceiveMessage(listener: (e: WebviewMessage.IIPyWidgetsMessage) => any): Disposable {
 		return this._context.onDidReceiveKernelMessage(listener as any);
 	}
 }

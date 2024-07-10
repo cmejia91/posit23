@@ -6,8 +6,13 @@
 import { Disposable } from 'vs/base/common/lifecycle';
 import { Emitter, Event } from 'vs/base/common/event';
 import { IRuntimeClientInstance, RuntimeClientState } from 'vs/workbench/services/languageRuntime/common/languageRuntimeClientInstance';
-import { ICommMessage, IIPyWidgetsMessaging } from 'vs/workbench/services/languageRuntime/common/positronIPyWidgetsMessaging';
+import { FromWebviewMessage, ICommMessage, IIPyWidgetsMessage } from 'vs/workbench/services/languageRuntime/common/positronIPyWidgetsWebviewMessages';
 import { ILogService } from 'vs/platform/log/common/log';
+
+export interface IIPyWidgetsWebviewMessaging {
+	onDidReceiveMessage: Event<FromWebviewMessage>;
+	postMessage(message: IIPyWidgetsMessage): void;
+}
 
 export class IPyWidgetClientInstance extends Disposable {
 	private readonly _closeEmitter = new Emitter<void>();
@@ -16,7 +21,7 @@ export class IPyWidgetClientInstance extends Disposable {
 
 	constructor(
 		private readonly _client: IRuntimeClientInstance<any, any>,
-		private readonly _messaging: IIPyWidgetsMessaging,
+		private readonly _messaging: IIPyWidgetsWebviewMessaging,
 		private readonly _logService: ILogService,
 		private readonly _rpcMethods: string[],
 	) {
