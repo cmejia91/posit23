@@ -117,10 +117,17 @@ export class Comm implements base.IClassicComm, Disposable {
 		if (callbacks) {
 			throw new Error('Callbacks not supported in close');
 		}
+
+		// Clear all existing callbacks.
+		this._on_msg = undefined;
+		this._on_close = undefined;
+		this._callbacks.clear();
+
 		this.messaging.postMessage({
 			type: 'comm_close',
 			comm_id: this.comm_id,
 		});
+
 		return '';
 	}
 
