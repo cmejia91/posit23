@@ -175,6 +175,7 @@ export class Comm implements base.IClassicComm, Disposable {
 				data: {},
 			},
 			channel: 'shell',
+			// Stub the rest of the interface - these are not currently used by widget libraries.
 			header: {
 				date: '',
 				msg_id: '',

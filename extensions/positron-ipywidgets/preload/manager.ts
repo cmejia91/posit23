@@ -96,13 +96,15 @@ export class PositronWidgetManager extends ManagerBase implements base.IWidgetMa
 					target_name: message.target_name,
 					data: message.data as JSONObject,
 				},
+				// This is expected to at least contain the backend widget protocol 'version', which
+				// should match the frontend version.
 				metadata: message.metadata as JSONObject,
-				// Stub the rest of the interface - these are not currently used by handle_comm_open.
 				channel: 'iopub',
+				// Stub the rest of the interface - these are not currently used by handle_comm_open.
 				header: {
 					date: '',
 					msg_id: '',
-					msg_type: message.type,
+					msg_type: 'comm_open',
 					session: '',
 					username: '',
 					version: '',
