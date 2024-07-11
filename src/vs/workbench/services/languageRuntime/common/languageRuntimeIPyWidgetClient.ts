@@ -23,6 +23,9 @@ export interface IIPyWidgetsWebviewMessaging {
 export class IPyWidgetClientInstance extends Disposable {
 	private readonly _closeEmitter = new Emitter<void>();
 
+	/** Whether the client is closed. */
+	private _closed = false;
+
 	/** Emitted when the runtime client is closed. */
 	onDidClose = this._closeEmitter.event;
 
@@ -49,8 +52,11 @@ export class IPyWidgetClientInstance extends Disposable {
 			}
 
 			switch (message.type) {
+				case 'comm_close':
+					this.handleCommCloseFromWebview();
+					break;
 				case 'comm_msg':
-					this.handleCommMessage(message);
+					this.handleCommMessageFromWebview(message);
 					break;
 				default:
 					this._logService.warn(
@@ -85,7 +91,8 @@ export class IPyWidgetClientInstance extends Disposable {
 		// When the client is closed, notify the webview and emit the close event.
 		const stateChangeEvent = Event.fromObservable(_client.clientState);
 		this._register(stateChangeEvent(state => {
-			if (state === RuntimeClientState.Closed) {
+			if (!this._closed && state === RuntimeClientState.Closed) {
+				this._closed = true;
 				this._messaging.postMessage({
 					type: 'comm_close',
 					comm_id: this._client.getClientId(),
@@ -95,7 +102,15 @@ export class IPyWidgetClientInstance extends Disposable {
 		}));
 	}
 
-	private async handleCommMessage(message: ICommMessageFromWebview) {
+	private async handleCommCloseFromWebview() {
+		// Mark the client as closed, so we don't send another comm_close to the webview.
+		this._closed = true;
+
+		// Dispose the client when the webview requests it.
+		this._client.dispose();
+	}
+
+	private async handleCommMessageFromWebview(message: ICommMessageFromWebview) {
 		const data = message.data as any;
 		if (
 			data.method !== undefined &&
