@@ -31,12 +31,23 @@ export class Comm implements base.IClassicComm, Disposable {
 	) {
 		// Handle messages from the runtime.
 		this._disposables.push(messaging.onDidReceiveMessage(message => {
+			// Only handle messages for this comm.
+			if (!('comm_id' in message) || message.comm_id !== this.comm_id) {
+				return;
+			}
+
 			switch (message.type) {
+				case 'comm_close':
+					this.handle_close(message);
+					break;
 				case 'comm_msg':
 					this.handle_msg(message);
 					break;
-				case 'comm_close':
-					this.handle_close(message);
+				default:
+					console.warn(
+						`Unhandled message from webview for client ${this.comm_id}: `
+						+ JSON.stringify(message)
+					);
 					break;
 			}
 		}));
@@ -100,7 +111,7 @@ export class Comm implements base.IClassicComm, Disposable {
 			this._callbacks.set(msgId, { iopub: { status: callbacks.iopub.status } });
 		}
 
-		console.log('Comm.send', this.comm_id, data, callbacks, metadata, buffers, msgId);
+		console.log(`Comm[${this.comm_id}].send`, data, callbacks, metadata, buffers, msgId);
 
 		this.messaging.postMessage({
 			type: 'comm_msg',
@@ -113,7 +124,7 @@ export class Comm implements base.IClassicComm, Disposable {
 	}
 
 	close(data?: JSONValue | undefined, callbacks?: base.ICallbacks | undefined, metadata?: JSONObject | undefined, buffers?: ArrayBuffer[] | ArrayBufferView[] | undefined): string {
-		console.log('Comm.close', data, callbacks, metadata, buffers);
+		console.log(`Comm[${this.comm_id}].close`, data, callbacks, metadata, buffers);
 		if (callbacks) {
 			throw new Error('Callbacks not supported in close');
 		}
@@ -137,7 +148,7 @@ export class Comm implements base.IClassicComm, Disposable {
 	 * @param callback Callback, which is given a message.
 	 */
 	on_msg(callback: (x: any) => void): void {
-		console.log('Comm.on_msg', callback);
+		console.log(`Comm[${this.comm_id}].on_msg`, callback);
 		this._on_msg = callback;
 	}
 
@@ -147,8 +158,34 @@ export class Comm implements base.IClassicComm, Disposable {
 	 * @param callback Callback, which is given a message.
 	 */
 	on_close(callback: (x: any) => void): void {
-		console.log('Comm.on_close', callback);
+		console.log(`Comm[${this.comm_id}].on_close`, callback);
 		this._on_close = callback;
+	}
+
+	/**
+	 * Handle a close message from the runtime.
+	 *
+	 * @param message The close message.
+	 */
+	private handle_close(message: WebviewMessage.ICommCloseToWebview): void {
+		console.log(`Comm[${this.comm_id}].handle_close`, message);
+		this._on_close?.({
+			content: {
+				comm_id: this.comm_id,
+				data: {},
+			},
+			channel: 'shell',
+			header: {
+				date: '',
+				msg_id: '',
+				msg_type: 'comm_close',
+				session: '',
+				username: '',
+				version: '',
+			},
+			parent_header: {},
+			metadata: {},
+		});
 	}
 
 	/**
@@ -157,7 +194,7 @@ export class Comm implements base.IClassicComm, Disposable {
 	 * @param message The message.
 	 */
 	private handle_msg(message: WebviewMessage.ICommMessageToWebview): void {
-		console.log('Comm.handle_msg', message);
+		console.log(`Comm[${this.comm_id}].handle_msg`, message);
 		this._on_msg?.({
 			content: {
 				comm_id: this.comm_id,
@@ -203,32 +240,6 @@ export class Comm implements base.IClassicComm, Disposable {
 				});
 			}
 		}
-	}
-
-	/**
-	 * Handle a close message from the runtime.
-	 *
-	 * @param message The close message.
-	 */
-	private handle_close(message: WebviewMessage.ICommCloseToWebview): void {
-		console.log('Comm.handle_close', message);
-		this._on_close?.({
-			content: {
-				comm_id: this.comm_id,
-				data: {},
-			},
-			channel: 'shell',
-			header: {
-				date: '',
-				msg_id: '',
-				msg_type: 'comm_close',
-				session: '',
-				username: '',
-				version: '',
-			},
-			parent_header: {},
-			metadata: {},
-		});
 	}
 
 	dispose(): void {
