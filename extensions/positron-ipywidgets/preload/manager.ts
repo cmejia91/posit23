@@ -224,31 +224,6 @@ export class PositronWidgetManager extends ManagerBase implements base.IWidgetMa
 		LuminoWidget.Widget.attach(view.luminoWidget, element);
 	}
 
-	async wait(): Promise<void> {
-		// TODO: Should this block activation?
-		// Wait for the ipywidgets service to send the initialization message.
-		console.log('Preload: Waiting for init message');
-		await new Promise<void>((resolve) => {
-			const disposable = this._messaging.onDidReceiveMessage(message => {
-				console.log('Preload: received message:', message);
-				if (message.type === 'initialize_result') {
-					// Append the stylesheet to the document head.
-					const link = document.createElement('link');
-					link.rel = 'stylesheet';
-					link.href = message.stylesheet_href;
-					document.head.appendChild(link);
-					disposable.dispose();
-					resolve();
-				}
-			});
-
-			this._messaging.postMessage({ type: 'initialize_request' });
-		});
-
-		console.log('Preload: Positron IPyWidgets activated');
-
-	}
-
 	loadFromKernel(): Promise<void> {
 		return this._loadFromKernel();
 	}
