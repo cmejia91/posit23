@@ -39,8 +39,8 @@ export const DataExplorer = () => {
 	// Reference hooks.
 	const dataExplorerRef = useRef<HTMLDivElement>(undefined!);
 	const columnNameExemplar = useRef<HTMLDivElement>(undefined!);
-	const sortIndexExemplar = useRef<HTMLDivElement>(undefined!);
 	const typeNameExemplar = useRef<HTMLDivElement>(undefined!);
+	const sortIndexExemplar = useRef<HTMLDivElement>(undefined!);
 	const column1Ref = useRef<HTMLDivElement>(undefined!);
 	const splitterRef = useRef<HTMLDivElement>(undefined!);
 	const column2Ref = useRef<HTMLDivElement>(undefined!);
@@ -303,8 +303,8 @@ export const DataExplorer = () => {
 	return (
 		<div ref={dataExplorerRef} className='data-explorer'>
 			<div ref={columnNameExemplar} className='column-name-exemplar' />
-			<div ref={sortIndexExemplar} className='sort-index-exemplar' />
 			<div ref={typeNameExemplar} className='type-name-exemplar' />
+			<div ref={sortIndexExemplar} className='sort-index-exemplar' />
 			<div ref={column1Ref} className='column-1'>
 				<PositronDataGrid
 					configurationService={context.configurationService}

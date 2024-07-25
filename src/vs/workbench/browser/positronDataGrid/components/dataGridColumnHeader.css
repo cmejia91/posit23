@@ -78,7 +78,7 @@
 .content
 .title-description
 .title {
-	font-weight: 600;
+	font-weight: var(--data-grid-column-header-title-font-weight);
 	overflow: hidden;
 	white-space: nowrap;
 	line-height: normal;
@@ -89,7 +89,7 @@
 .content
 .title-description
 .description {
-	font-size: 90%;
+	font-size: var(--data-grid-column-header-description-font-size);
 	opacity: 80%;
 	overflow: hidden;
 	white-space: nowrap;
@@ -117,10 +117,11 @@
 .sort-indicator
 .sort-index {
 	margin: 0 3px;
-	font-size: 80%;
-	font-weight: 600;
-	font-variant-numeric: tabular-nums;
 	color: var(--vscode-positronDataGrid-sortIndexForeground);
+	font-size: var(--data-grid-column-header-sort-index-font-size);
+	font-weight: var(--data-grid-column-header-sort-index-font-weight);
+	font-variant-numeric: var(--data-grid-column-header-sort-index-font-variant-numeric);
+
 }
 
 .data-grid-column-header

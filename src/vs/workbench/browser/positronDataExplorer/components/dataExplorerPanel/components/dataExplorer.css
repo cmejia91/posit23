@@ -16,21 +16,21 @@
 .data-explorer-panel
 .data-explorer
 .column-name-exemplar {
-	font-weight: 600;
-}
-
-.data-explorer-panel
-.data-explorer
-.sort-index-exemplar {
-	font-size: 80%;
-	font-weight: 600;
-	font-variant-numeric: tabular-nums;
+	font-weight: var(--data-grid-column-header-title-font-weight);
 }
 
 .data-explorer-panel
 .data-explorer
 .type-name-exemplar {
-	font-size: 90%;
+	font-size: var(--data-grid-column-header-description-font-size);
+}
+
+.data-explorer-panel
+.data-explorer
+.sort-index-exemplar {
+	font-size: var(--data-grid-column-header-sort-index-font-size);
+	font-weight: var(--data-grid-column-header-sort-index-font-weight);
+	font-variant-numeric: var(--data-grid-column-header-sort-index-font-variant-numeric);
 }
 
 .data-explorer-panel
