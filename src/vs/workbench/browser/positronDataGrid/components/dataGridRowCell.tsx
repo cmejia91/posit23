@@ -141,7 +141,7 @@ export const DataGridRowCell = (props: DataGridRowCellProps) => {
 			}}
 			onMouseDown={mouseDownHandler}
 		>
-			{context.instance.cellBorder &&
+			{context.instance.cellBorders &&
 				<>
 					<div className='border-overlay'>
 						{!selected && isCursorCell && <Cursor dimmed={!context.instance.focused} />}
@@ -162,7 +162,14 @@ export const DataGridRowCell = (props: DataGridRowCellProps) => {
 					}
 				</>
 			}
-			<div id={`data-grid-row-cell-content-${props.columnIndex}-${props.rowIndex}`} className='content'>
+			<div
+				id={`data-grid-row-cell-content-${props.columnIndex}-${props.rowIndex}`}
+				className='content'
+				style={{
+					paddingLeft: context.instance.horizontalCellPadding,
+					paddingRight: context.instance.horizontalCellPadding
+				}}
+			>
 				{context.instance.cell(props.columnIndex, props.rowIndex)}
 			</div>
 			{context.instance.columnResize &&
@@ -173,7 +180,7 @@ export const DataGridRowCell = (props: DataGridRowCellProps) => {
 						startingWidth: context.instance.getColumnWidth(props.columnIndex)
 					})}
 					onResize={async width =>
-						await context.instance.setColumnWidth(props.columnIndex, width)
+						await context.instance.setUserDefinedColumnWidth(props.columnIndex, width)
 					}
 				/>
 			}
@@ -185,7 +192,7 @@ export const DataGridRowCell = (props: DataGridRowCellProps) => {
 						startingHeight: context.instance.getRowHeight(props.rowIndex)
 					})}
 					onResize={async height =>
-						await context.instance.setRowHeight(props.rowIndex, height)
+						await context.instance.setUserDefinedRowHeight(props.rowIndex, height)
 					}
 				/>
 			}

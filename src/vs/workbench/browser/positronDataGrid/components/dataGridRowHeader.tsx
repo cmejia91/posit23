@@ -96,7 +96,7 @@ export const DataGridRowHeader = (props: DataGridRowHeaderProps) => {
 			}}
 			onMouseDown={mouseDownHandler}
 		>
-			{context.instance.cellBorder &&
+			{context.instance.cellBorders &&
 				<>
 					<div className='border-overlay' />
 					{selected &&
@@ -132,7 +132,7 @@ export const DataGridRowHeader = (props: DataGridRowHeaderProps) => {
 						startingHeight: context.instance.getRowHeight(props.rowIndex)
 					})}
 					onResize={async height =>
-						await context.instance.setRowHeight(props.rowIndex, height)
+						await context.instance.setUserDefinedRowHeight(props.rowIndex, height)
 					}
 				/>
 			}

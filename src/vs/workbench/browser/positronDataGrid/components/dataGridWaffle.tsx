@@ -8,14 +8,19 @@ import 'vs/css!./dataGridWaffle';
 
 // React.
 import * as React from 'react';
-import { forwardRef, KeyboardEvent, useEffect, useImperativeHandle, useRef, useState, WheelEvent } from 'react'; // eslint-disable-line no-duplicate-imports
+import { forwardRef, KeyboardEvent, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, WheelEvent } from 'react'; // eslint-disable-line no-duplicate-imports
 
 // Other dependencies.
+import * as DOM from 'vs/base/browser/dom';
 import { generateUuid } from 'vs/base/common/uuid';
 import { isMacintosh } from 'vs/base/common/platform';
+import { PixelRatio } from 'vs/base/browser/pixelRatio';
 import { DisposableStore } from 'vs/base/common/lifecycle';
 import { pinToRange } from 'vs/base/common/positronUtilities';
-import { editorFontApplier } from 'vs/workbench/browser/editorFontApplier';
+import { BareFontInfo } from 'vs/editor/common/config/fontInfo';
+import { applyFontInfo } from 'vs/editor/browser/config/domFontInfo';
+import { IEditorOptions } from 'vs/editor/common/config/editorOptions';
+import { FontMeasurements } from 'vs/editor/browser/config/fontMeasurements';
 import { DataGridRow } from 'vs/workbench/browser/positronDataGrid/components/dataGridRow';
 import { DataGridScrollbar } from 'vs/workbench/browser/positronDataGrid/components/dataGridScrollbar';
 import { DataGridRowHeaders } from 'vs/workbench/browser/positronDataGrid/components/dataGridRowHeaders';
@@ -54,32 +59,65 @@ export const DataGridWaffle = forwardRef<HTMLDivElement>((_: unknown, ref) => {
 	const [wheelDeltaX, setWheelDeltaX] = useState(0);
 	const [wheelDeltaY, setWheelDeltaY] = useState(0);
 
-	// Main useEffect. This is where we set up event handlers.
-	useEffect(() => {
+	// Main useLayoutEffect.
+	useLayoutEffect(() => {
 		// Create the disposable store for cleanup.
 		const disposableStore = new DisposableStore();
 
-		// Use the editor font, if so configured.
+		// Use the editor font, if configured to do so.
 		if (context.instance.useEditorFont) {
-			disposableStore.add(
-				editorFontApplier(
-					context.configurationService,
-					dataGridRowsRef.current
+			// Get the window for the data grid waffle.
+			const window = DOM.getWindow(dataGridWaffleRef.current);
+
+			// Read the font info for the editor options.
+			const fontInfo = FontMeasurements.readFontInfo(
+				window,
+				BareFontInfo.createFromRawSettings(
+					context.configurationService.getValue<IEditorOptions>('editor'),
+					PixelRatio.getInstance(window).value
 				)
+			);
+
+			// Apply the font info to the data grid waffle.
+			applyFontInfo(dataGridRowsRef.current, fontInfo);
+
+			// Listen for editor configuration changes.
+			disposableStore.add(context.configurationService.onDidChangeConfiguration(
+				async configurationChangeEvent => {
+					// When something in the editor changes, determine whether it's font-related
+					// and, if it is, apply the new font info.
+					if (configurationChangeEvent.affectsConfiguration('editor')) {
+						if (configurationChangeEvent.affectedKeys.has('editor.fontFamily') ||
+							configurationChangeEvent.affectedKeys.has('editor.fontWeight') ||
+							configurationChangeEvent.affectedKeys.has('editor.fontSize') ||
+							configurationChangeEvent.affectedKeys.has('editor.fontLigatures') ||
+							configurationChangeEvent.affectedKeys.has('editor.fontVariations') ||
+							configurationChangeEvent.affectedKeys.has('editor.lineHeight') ||
+							configurationChangeEvent.affectedKeys.has('editor.letterSpacing')
+						) {
+							// Get the window for the data grid waffle.
+							const window = DOM.getWindow(dataGridWaffleRef.current);
+
+							// Read the font info for the editor options.
+							const fontInfo = FontMeasurements.readFontInfo(
+								window,
+								BareFontInfo.createFromRawSettings(
+									context.configurationService.getValue<IEditorOptions>('editor'),
+									PixelRatio.getInstance(window).value
+								)
+							);
+
+							// Apply the font info to the data grid waffle.
+							applyFontInfo(dataGridRowsRef.current, fontInfo);
+
+							// Fetch data because the font may have become smaller.
+							await context.instance.fetchData();
+						}
+					}
+				})
 			);
 		}
 
-		// Add the onDidUpdate event handler.
-		disposableStore.add(context.instance.onDidUpdate(() => {
-			setRenderMarker(generateUuid());
-		}));
-
-		// Return the cleanup function that will dispose of the event handlers.
-		return () => disposableStore.dispose();
-	}, [context.configurationService, context.instance]);
-
-	// Layout useEffect.
-	useEffect(() => {
 		// Set the initial width and height.
 		setWidth(dataGridWaffleRef.current.offsetWidth);
 		setHeight(dataGridWaffleRef.current.offsetHeight);
@@ -120,9 +158,26 @@ export const DataGridWaffle = forwardRef<HTMLDivElement>((_: unknown, ref) => {
 		// Start observing the size of the waffle.
 		resizeObserver.observe(dataGridWaffleRef.current);
 
-		// Return the cleanup function that will disconnect the resize observer.
-		return () => resizeObserver.disconnect();
-	}, [context.instance, dataGridWaffleRef]);
+		// Return the cleanup function.
+		return () => {
+			disposableStore.dispose();
+			resizeObserver.disconnect();
+		};
+	}, [context.configurationService, context.instance]);
+
+	// Main useEffect.
+	useEffect(() => {
+		// Create the disposable store for cleanup.
+		const disposableStore = new DisposableStore();
+
+		// Add the onDidUpdate event handler.
+		disposableStore.add(context.instance.onDidUpdate(() => {
+			setRenderMarker(generateUuid());
+		}));
+
+		// Return the cleanup function.
+		return () => disposableStore.dispose();
+	}, [context.configurationService, context.instance]);
 
 	/**
 	 * onKeyDown event handler.
@@ -275,8 +330,9 @@ export const DataGridWaffle = forwardRef<HTMLDivElement>((_: unknown, ref) => {
 				// the top left of the page.
 				context.instance.clearSelection();
 				const firstRowIndex = Math.max(
-					context.instance.firstRowIndex - (e.altKey ? context.instance.visibleRows * 10 : context.instance.visibleRows),
-					0
+					0,
+					context.instance.firstRowIndex -
+					(e.altKey ? context.instance.visibleRows * 10 : context.instance.visibleRows)
 				);
 				await context.instance.setFirstRow(firstRowIndex);
 				context.instance.setCursorRow(firstRowIndex);
@@ -308,8 +364,9 @@ export const DataGridWaffle = forwardRef<HTMLDivElement>((_: unknown, ref) => {
 				// at the bottom left of the page.
 				context.instance.clearSelection();
 				const firstRowIndex = Math.min(
-					context.instance.firstRowIndex + (e.altKey ? context.instance.visibleRows * 10 : context.instance.visibleRows),
-					context.instance.maximumFirstRowIndex
+					context.instance.maximumFirstRowIndex,
+					context.instance.firstRowIndex +
+					(e.altKey ? context.instance.visibleRows * 10 : context.instance.visibleRows)
 				);
 				await context.instance.setFirstRow(firstRowIndex);
 				context.instance.setCursorRow(firstRowIndex);
@@ -624,7 +681,6 @@ export const DataGridWaffle = forwardRef<HTMLDivElement>((_: unknown, ref) => {
 			}
 
 			<div
-				ref={dataGridRowsRef}
 				className='data-grid-rows'
 				style={{
 					width: width - context.instance.rowHeadersWidth,
@@ -632,10 +688,13 @@ export const DataGridWaffle = forwardRef<HTMLDivElement>((_: unknown, ref) => {
 				}}
 			>
 
-				<div style={{
-					position: 'relative',
-					margin: context.instance.rowsMargin
-				}}>
+				<div
+					ref={dataGridRowsRef}
+					style={{
+						position: 'relative',
+						margin: context.instance.rowsMargin
+					}}
+				>
 					{dataGridRows}
 				</div>
 
