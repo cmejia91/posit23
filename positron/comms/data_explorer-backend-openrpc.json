@@ -52,6 +52,7 @@
 			],
 			"result": {
 				"schema": {
+					"description": "The table schema",
 					"$ref": "#/components/schemas/table_schema"
 				}
 			}

@@ -1092,7 +1092,7 @@ export class PositronDataExplorerComm extends PositronBaseComm {
 	 *
 	 * @param columnIndices The column indices to fetch
 	 *
-	 * @returns undefined
+	 * @returns The table schema
 	 */
 	getTableSchema(columnIndices: Array<number>): Promise<TableSchema> {
 		return super.performRpc('get_table_schema', ['column_indices'], [columnIndices]);
