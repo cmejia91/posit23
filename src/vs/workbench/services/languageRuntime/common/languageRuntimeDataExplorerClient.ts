@@ -259,6 +259,20 @@ export class DataExplorerClientInstance extends Disposable {
 	}
 
 	/**
+	 * Gets the table schema.
+	 * @param columnIndices Indices to return.
+	 * @returns A promise that resolves to the table schema.
+	 */
+	async getTableSchema(columnIndices: Array<number>): Promise<TableSchema> {
+		return this.runBackendTask(
+			() => this._positronDataExplorerComm.getTableSchema(columnIndices),
+			() => {
+				return { columns: [] };
+			}
+		);
+	}
+
+	/**
 	 * Searches the table schema.
 	 * @param searchText The search text.
 	 * @param startIndex The starting index.

@@ -64,6 +64,7 @@ from .data_explorer_comm import (
     GetColumnProfilesRequest,
     GetDataValuesRequest,
     GetSchemaRequest,
+    GetTableSchemaRequest,
     GetStateRequest,
     RowFilter,
     RowFilterCondition,
@@ -193,6 +194,25 @@ class DataExplorerTableView(abc.ABC):
             col_schema = self._get_single_column_schema(column_index)
             column_schemas.append(col_schema)
 
+        return TableSchema(columns=column_schemas).dict()
+
+    # Gets the table schema from a list of column indices.
+    def get_table_schema(self, request: GetTableSchemaRequest):
+        # Loop over the sorted column indices to get the column schemas the user requested.
+        column_schemas = []
+        for column_index in sorted(request.params.column_indices):
+            # Validate that the column index isn't negative.
+            if column_index < 0:
+                raise IndexError
+
+            # Break when the column index is too large.
+            if column_index >= len(self.table.columns):
+                break
+
+            # Add the column schema.
+            column_schemas.append(self._get_single_column_schema(column_index))
+
+        # Return the column schemas.
         return TableSchema(columns=column_schemas).dict()
 
     def _get_single_column_schema(self, column_index: int) -> ColumnSchema:

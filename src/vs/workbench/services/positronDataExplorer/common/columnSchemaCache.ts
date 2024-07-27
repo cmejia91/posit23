@@ -186,7 +186,7 @@ export class ColumnSchemaCache extends Disposable {
 		);
 		const endColumnIndex = startColumnIndex + visibleColumns + (visibleColumns * OVERSCAN_FACTOR * 2);
 
-		// Build an array of the column indicies to cache.
+		// Build an array of the column indices to cache.
 		const columnIndicies = arrayFromIndexRange(startColumnIndex, endColumnIndex);
 
 		// Build an array of the column schema indices that need to be cached.

@@ -1050,6 +1050,7 @@ export enum DataExplorerFrontendEvent {
 
 export enum DataExplorerBackendRequest {
 	GetSchema = 'get_schema',
+	GetTableSchema = 'get_table_schema',
 	SearchSchema = 'search_schema',
 	GetDataValues = 'get_data_values',
 	ExportDataSelection = 'export_data_selection',
@@ -1082,6 +1083,19 @@ export class PositronDataExplorerComm extends PositronBaseComm {
 	 */
 	getSchema(startIndex: number, numColumns: number): Promise<TableSchema> {
 		return super.performRpc('get_schema', ['start_index', 'num_columns'], [startIndex, numColumns]);
+	}
+
+	/**
+	 * Gets table schema
+	 *
+	 * Gets table schema for a table-like object
+	 *
+	 * @param columnIndices The column indices to fetch
+	 *
+	 * @returns undefined
+	 */
+	getTableSchema(columnIndices: Array<number>): Promise<TableSchema> {
+		return super.performRpc('get_table_schema', ['column_indices'], [columnIndices]);
 	}
 
 	/**

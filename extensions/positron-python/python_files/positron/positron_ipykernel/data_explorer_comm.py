@@ -1018,6 +1018,9 @@ class DataExplorerBackendRequest(str, enum.Enum):
     # Request schema
     GetSchema = "get_schema"
 
+    # Gets table schema
+    GetTableSchema = "get_table_schema"
+
     # Search schema with column filters
     SearchSchema = "search_schema"
 
@@ -1065,6 +1068,35 @@ class GetSchemaRequest(BaseModel):
 
     method: Literal[DataExplorerBackendRequest.GetSchema] = Field(
         description="The JSON-RPC method name (get_schema)",
+    )
+
+    jsonrpc: str = Field(
+        default="2.0",
+        description="The JSON-RPC version specifier",
+    )
+
+
+class GetTableSchemaParams(BaseModel):
+    """
+    Gets table schema for a table-like object
+    """
+
+    column_indices: List[StrictInt] = Field(
+        description="The column indices to fetch",
+    )
+
+
+class GetTableSchemaRequest(BaseModel):
+    """
+    Gets table schema for a table-like object
+    """
+
+    params: GetTableSchemaParams = Field(
+        description="Parameters to the GetTableSchema method",
+    )
+
+    method: Literal[DataExplorerBackendRequest.GetTableSchema] = Field(
+        description="The JSON-RPC method name (get_table_schema)",
     )
 
     jsonrpc: str = Field(
@@ -1299,6 +1331,7 @@ class DataExplorerBackendMessageContent(BaseModel):
     comm_id: str
     data: Union[
         GetSchemaRequest,
+        GetTableSchemaRequest,
         SearchSchemaRequest,
         GetDataValuesRequest,
         ExportDataSelectionRequest,
@@ -1411,6 +1444,10 @@ DataSelectionIndices.update_forward_refs()
 GetSchemaParams.update_forward_refs()
 
 GetSchemaRequest.update_forward_refs()
+
+GetTableSchemaParams.update_forward_refs()
+
+GetTableSchemaRequest.update_forward_refs()
 
 SearchSchemaParams.update_forward_refs()
 

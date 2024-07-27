@@ -34,6 +34,29 @@
 			}
 		},
 		{
+			"name": "get_table_schema",
+			"summary": "Gets table schema",
+			"description": "Gets table schema for a table-like object",
+			"params": [
+				{
+					"name": "column_indices",
+					"description": "The column indices to fetch",
+					"required": true,
+					"schema": {
+						"type": "array",
+						"items": {
+							"type": "integer"
+						}
+					}
+				}
+			],
+			"result": {
+				"schema": {
+					"$ref": "#/components/schemas/table_schema"
+				}
+			}
+		},
+		{
 			"name": "search_schema",
 			"summary": "Search schema with column filters",
 			"description": "Search schema for column names matching a passed substring",
