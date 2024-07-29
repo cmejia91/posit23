@@ -242,8 +242,6 @@ export class TableSummaryCache extends Disposable {
 			firstColumnIndex + visibleColumns + (visibleColumns * OVERSCAN_FACTOR)
 		);
 
-		console.log(`Of ${this._columns} columns we want to start at ${startColumnIndex} and end at ${endColumnIndex}`);
-
 		// Build the column indicies we need to load.
 		const columnIndices: number[] = [];
 		for (let columnIndex = startColumnIndex; columnIndex <= endColumnIndex; columnIndex++) {
@@ -254,8 +252,6 @@ export class TableSummaryCache extends Disposable {
 
 		// If there are column schema indices that need to be cached, cache them.
 		if (columnIndices.length) {
-			console.log(`Inside the filter columns ${this._columns} startColumnIndex ${startColumnIndex} endColumnIndex ${endColumnIndex}`);
-
 			// Get the table schema.
 			const tableSchema = await this._dataExplorerClientInstance.getTableSchema(
 				columnIndices
