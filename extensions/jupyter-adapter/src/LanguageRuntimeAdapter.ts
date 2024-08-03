@@ -146,7 +146,7 @@ export class LanguageRuntimeSessionAdapter
 		let response = {} as any;
 		try {
 			// Send the request and wait for a response
-			response = await uiComm.performRpc(request);
+			response = (await uiComm.performRpc(request)).data;
 		} catch (err) {
 			// Convert the error to a runtime method error. This handles errors
 			// that occur while performing the RPC; if the RPC is successfully
@@ -686,6 +686,7 @@ export class LanguageRuntimeSessionAdapter
 			comm_id: msg.comm_id,
 			data: msg.data,
 			metadata: message.metadata,
+			buffers: message.buffers,
 		} as positron.LanguageRuntimeCommMessage);
 	}
 
@@ -960,7 +961,8 @@ export class LanguageRuntimeSessionAdapter
 
 		// Handle events from the DAP
 		const comm = this._comms.get(clientId)!;
-		this._disposables.push(comm.onDidReceiveCommMsg(msg => {
+		this._disposables.push(comm.onDidReceiveCommMsg(e => {
+			const msg = e.data;
 			switch (msg.msg_type) {
 				// The runtime is in control of when to start a debug session.
 				// When this happens, we attach automatically to the runtime

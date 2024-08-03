@@ -112,7 +112,8 @@ export class PositronBaseComm extends Disposable {
 		private readonly options?: PositronCommOptions<any>) {
 		super();
 		this._register(clientInstance);
-		this._register(clientInstance.onDidReceiveData((data) => {
+		this._register(clientInstance.onDidReceiveData((event) => {
+			const data = event.data;
 			const emitter = this._emitters.get(data.method);
 			if (emitter) {
 				const payload = data.params;
@@ -234,7 +235,7 @@ export class PositronBaseComm extends Disposable {
 		let response = {} as any;
 		try {
 			const timeout = this.options?.[rpcName]?.timeout ?? 5000;
-			response = await this.clientInstance.performRpc(request, timeout);
+			response = (await this.clientInstance.performRpc(request, timeout)).data;
 		} catch (err) {
 			// Convert the error to a runtime method error. This handles errors
 			// that occur while performing the RPC; if the RPC is successfully
