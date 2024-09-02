@@ -158,7 +158,7 @@ jobs:
     needs: build-windows
     steps:
       - name: Notify slack if build fails
-        uses: slackapi/slack-github-action@v1.26.0
+        uses: slackapi/slack-github-action@v1.27.0
         id: slack-failure
         with:
           payload: |
